@@ -22,23 +22,23 @@ cp .env.example .env   # then edit .env if you need non-default values
 
 ### Database
 
-By default `DATABASE_URL` in `.env.example` points at a local SQLite file
-(`payroll_dev.db`) so the project runs with zero external services. This is
-fine for quick local testing but not for real usage.
-
-For real usage, install PostgreSQL locally (or point at an existing server)
-and set in `.env`:
-
-```
-DATABASE_URL=postgresql+psycopg2://payroll_user:payroll_pass@localhost:5432/staunch_payroll
-```
-
-Create the database/role first, e.g.:
+This project uses **PostgreSQL**. Install it locally (or point at an existing
+server), create a dedicated database and a scoped app user for it (don't use
+the `postgres` superuser for the app itself), then set `DATABASE_URL` in
+`.env`:
 
 ```sql
-CREATE ROLE payroll_user WITH LOGIN PASSWORD 'payroll_pass';
-CREATE DATABASE staunch_payroll OWNER payroll_user;
+CREATE USER hrms_app WITH PASSWORD 'change-me';
+CREATE DATABASE staunch_hrms OWNER hrms_app;
 ```
+
+```
+DATABASE_URL=postgresql+psycopg2://hrms_app:change-me@localhost:5432/staunch_hrms
+```
+
+SQLite is no longer used for the real application database — only the test
+suite uses an in-memory SQLite DB for speed/isolation (see Testing below),
+which is unrelated to this setting.
 
 ### Migrations
 
