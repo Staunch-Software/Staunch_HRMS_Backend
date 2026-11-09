@@ -10,6 +10,7 @@ from app.core.security import hash_password
 from app.models.company_bank_config import CompanyBankConfig
 from app.models.org import Department, Designation, WorkLocation
 from app.models.user import AdminUser
+from app.db.seed.pay_groups_seed import seed_pay_groups
 from app.db.seed.salary_components_seed import seed_salary_components
 from app.db.seed.statutory_seed import seed_statutory_all
 
@@ -136,6 +137,7 @@ def seed_all() -> None:
         seed_salary_components(db)
         seed_statutory_all(db)
         seed_company_bank_config(db)
+        seed_pay_groups(db)
         print("Seed complete.")
         print(
             "NOTE: all seeded Professional Tax and TDS slabs are marked "

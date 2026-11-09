@@ -11,11 +11,14 @@ class PayrollRunCreate(BaseModel):
     pay_date: date
     run_type: str = "Regular"  # Regular|OffCycle|FinalSettlement
     created_by: Optional[str] = None
+    # Optional: scope the run to one pay group and compute with its strategy.
+    pay_group_id: Optional[int] = None
 
 
 class PayrollRunRead(BaseModel):
     id: int
     pay_schedule_id: int
+    pay_group_id: Optional[int] = None
     period_start: date
     period_end: date
     pay_date: date

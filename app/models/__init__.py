@@ -19,10 +19,12 @@ from app.models.statutory import (  # noqa: F401
     TDSConfig,
     TDSSlab,
 )
+from app.models.pay_group import EmployeePayProfile, PayGroup  # noqa: F401
 from app.models.variable_pay import VariablePayInput  # noqa: F401
 from app.models.payroll_run import PayrollRun, PayrollRunLineItem  # noqa: F401
 from app.models.company_bank_config import CompanyBankConfig  # noqa: F401
 from app.models.disbursement import DisbursementBatch, DisbursementBatchItem  # noqa: F401
+from app.models.attendance import AttendanceDaily, AttendancePunch, AttendanceSyncRun  # noqa: F401
 
 __all__ = [
     "Base",
@@ -42,10 +44,15 @@ __all__ = [
     "TDSSlab",
     "TDSConfig",
     "EmployeeTaxDeclaration",
+    "PayGroup",
+    "EmployeePayProfile",
     "VariablePayInput",
     "PayrollRun",
     "PayrollRunLineItem",
     "CompanyBankConfig",
     "DisbursementBatch",
     "DisbursementBatchItem",
+    "AttendancePunch",
+    "AttendanceDaily",
+    "AttendanceSyncRun",
 ]

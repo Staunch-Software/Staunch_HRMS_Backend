@@ -2,6 +2,8 @@
 orchestrating entry point called by POST /payroll-runs/{id}/calculate. It
 mutates `run` in place (status/totals/error_message) and creates/replaces
 that run's PayrollRunLineItem rows. All money math uses decimal.Decimal.
+A run with pay_group_id is scoped and computed by pay_group_runner instead
+of the component formulas below.
 """
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -15,6 +17,10 @@ from app.models.variable_pay import VariablePayInput
 from app.services.formula.dependency_graph import build_dependency_graph, topological_sort
 from app.services.formula.evaluator import FormulaEvaluationError, evaluate_formula
 from app.services.payroll_engine import proration, rounding
+from app.services.payroll_engine.pay_group_runner import (
+    calculate_pay_group_line_items,
+    resolve_pay_group_scope,
+)
 from app.services.payroll_engine.statutory import esi as esi_calc
 from app.services.payroll_engine.statutory import pf as pf_calc
 from app.services.payroll_engine.statutory import pt as pt_calc
@@ -47,6 +53,8 @@ def _financial_year_for(period_end: date) -> str:
 
 
 def _resolve_employee_scope(db: Session, run: PayrollRun) -> list[Employee]:
+    if run.pay_group_id is not None:
+        return [employee for employee, _ in resolve_pay_group_scope(db, run)]
     schedule = run.pay_schedule
     applies_to = schedule.applies_to if schedule else None
     departments = {str(x) for x in (applies_to or {}).get("departments", []) or []}
@@ -142,15 +150,20 @@ def _run_calculation(db: Session, run: PayrollRun) -> None:
     db.query(PayrollRunLineItem).filter(PayrollRunLineItem.payroll_run_id == run.id).delete()
     db.flush()
 
-    employees = _resolve_employee_scope(db, run)
-    financial_year = _financial_year_for(run.period_end)
+    if run.pay_group_id is not None:
+        line_items = calculate_pay_group_line_items(db, run)
+    else:
+        financial_year = _financial_year_for(run.period_end)
+        line_items = [
+            _calculate_employee(db, run, employee, financial_year)
+            for employee in _resolve_employee_scope(db, run)
+        ]
 
     total_gross = Decimal("0")
     total_deductions = Decimal("0")
     total_net = Decimal("0")
 
-    for employee in employees:
-        line_item = _calculate_employee(db, run, employee, financial_year)
+    for line_item in line_items:
         db.add(line_item)
         if line_item.status != "Error":
             total_gross += _to_decimal(line_item.gross_earnings)
@@ -160,7 +173,7 @@ def _run_calculation(db: Session, run: PayrollRun) -> None:
     run.total_gross = float(total_gross)
     run.total_deductions = float(total_deductions)
     run.total_net = float(total_net)
-    run.employee_count = len(employees)
+    run.employee_count = len(line_items)
 
 
 def _employee_snapshot(db: Session, employee: Employee) -> dict:

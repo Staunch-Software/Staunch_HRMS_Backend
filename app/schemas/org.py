@@ -65,5 +65,8 @@ class WorkLocationUpdate(WorkLocationBase):
 
 class WorkLocationRead(WorkLocationBase):
     id: int
+    # Locations auto-created by the employee master import may not have a
+    # known state yet.
+    state_code: Optional[str] = None
 
     model_config = {"from_attributes": True}

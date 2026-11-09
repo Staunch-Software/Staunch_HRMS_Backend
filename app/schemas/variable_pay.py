@@ -18,6 +18,7 @@ class VariablePayInputCreate(BaseModel):
     lop_days: float = 0
     paid_leave_days: float = 0
     overtime_hours: float = 0
+    overtime_days: Optional[float] = None
     overtime_amount: Optional[float] = None
     ad_hoc_earnings: list[AdHocItem] = []
     ad_hoc_deductions: list[AdHocItem] = []
@@ -34,6 +35,7 @@ class VariablePayInputRead(BaseModel):
     lop_days: float
     paid_leave_days: float
     overtime_hours: float
+    overtime_days: Optional[float] = None
     overtime_amount: Optional[float] = None
     ad_hoc_earnings: list[Any] = []
     ad_hoc_deductions: list[Any] = []

@@ -24,6 +24,47 @@ class EmployeeBase(BaseModel):
     mobile_number: Optional[str] = None
     gender: Optional[str] = None
 
+    middle_name: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    marital_status: Optional[str] = None
+    blood_group: Optional[str] = None
+    father_spouse_name: Optional[str] = None
+    relation: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_number: Optional[str] = None
+    permanent_address: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+
+    employment_type: Optional[str] = None
+    pf_applicable: Optional[bool] = None
+    uan_number: Optional[str] = None
+    esi_applicable: Optional[bool] = None
+    esi_number: Optional[str] = None
+    insurance_applicable: Optional[bool] = None
+    geographic_location: Optional[str] = None
+    client: Optional[str] = None
+    client_branch: Optional[str] = None
+    remarks: Optional[str] = None
+
+    highest_qualification: Optional[str] = None
+    certifications: Optional[str] = None
+    year_of_passing: Optional[str] = None
+    university: Optional[str] = None
+
+    apprenticeship_type: Optional[str] = None
+    enrollment_id: Optional[str] = None
+    contract_no: Optional[str] = None
+    contract_start_date: Optional[date] = None
+    contract_end_date: Optional[date] = None
+    stipend_amount: Optional[float] = None
+
 
 class EmployeeCreate(EmployeeBase):
     pass

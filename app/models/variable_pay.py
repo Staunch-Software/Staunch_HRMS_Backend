@@ -30,6 +30,8 @@ class VariablePayInput(Base, TimestampMixin):
     paid_leave_days: Mapped[float] = mapped_column(Numeric(6, 2), default=0, nullable=False)
     overtime_hours: Mapped[float] = mapped_column(Numeric(6, 2), default=0, nullable=False)
     overtime_amount: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    # Overtime counted in days (pay-group MONTHLY_SALARIED, e.g. Chennai HO).
+    overtime_days: Mapped[Optional[float]] = mapped_column(Numeric(6, 2), nullable=True)
 
     # Each item: {"component_code": str, "amount": number, "remarks": str}
     ad_hoc_earnings: Mapped[list[Any]] = mapped_column(JSONType, nullable=False, default=list)

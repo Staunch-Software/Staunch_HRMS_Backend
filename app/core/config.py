@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     ICICI_RSA_PUBLIC_KEY_PEM: str = ""
     ICICI_RSA_PRIVATE_KEY_PEM: str = ""
 
+    # --- Matrix COSEC (vyom) attendance API ---------------------------------
+    MATRIX_API_BASE_URL: str = "https://staunchtec.matrixvyom.com/api.svc/v2/event-ta-date"
+    MATRIX_API_USERNAME: str = ""
+    MATRIX_API_PASSWORD: str = ""
+    MATRIX_API_TIMEOUT_SECONDS: float = 30.0
+    # Daily background sync (APScheduler, local server time). The window is
+    # today minus LOOKBACK_DAYS .. today, because Matrix filters by server
+    # receive time and late-synced punches belong to the previous day.
+    ATTENDANCE_SYNC_ENABLED: bool = True
+    ATTENDANCE_SYNC_TIME: str = "23:30"
+    ATTENDANCE_SYNC_LOOKBACK_DAYS: int = 1
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

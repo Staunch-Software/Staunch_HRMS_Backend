@@ -24,10 +24,11 @@ _TTL_SECONDS = 3600  # stale/abandoned preview batches are dropped after an hour
 @dataclass
 class UploadBatch:
     batch_id: str
-    run_id: int
-    mode: str  # "variable-inputs" | "final-sheet"
+    run_id: Optional[int]  # None for batches not tied to a payroll run
+    mode: str  # "variable-inputs" | "final-sheet" | "employee-master" | "payroll-excel"
     raw_rows: list[dict]
     created_at: float = field(default_factory=time.time)
+    meta: dict = field(default_factory=dict)
 
 
 _BATCHES: dict[str, UploadBatch] = {}
@@ -40,9 +41,9 @@ def _evict_expired() -> None:
         _BATCHES.pop(batch_id, None)
 
 
-def create(run_id: int, mode: str, raw_rows: list[dict]) -> UploadBatch:
+def create(run_id: Optional[int], mode: str, raw_rows: list[dict], meta: Optional[dict] = None) -> UploadBatch:
     _evict_expired()
-    batch = UploadBatch(batch_id=str(uuid.uuid4()), run_id=run_id, mode=mode, raw_rows=raw_rows)
+    batch = UploadBatch(batch_id=str(uuid.uuid4()), run_id=run_id, mode=mode, raw_rows=raw_rows, meta=meta or {})
     _BATCHES[batch.batch_id] = batch
     return batch
 

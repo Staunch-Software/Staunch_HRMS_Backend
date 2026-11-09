@@ -1,3 +1,8 @@
+import os
+
+# Never start the in-process attendance scheduler (or hit Matrix) from tests.
+os.environ["ATTENDANCE_SYNC_ENABLED"] = "false"
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

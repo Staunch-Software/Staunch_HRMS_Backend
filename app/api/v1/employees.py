@@ -83,7 +83,9 @@ def update_employee(employee_id: int, payload: EmployeeUpdate, db: Session = Dep
         raise HTTPException(
             status_code=400, detail=f"Employee ID '{payload.employee_code}' already exists."
         )
-    for field, value in payload.model_dump().items():
+    # exclude_unset: a client that doesn't know about a field (e.g. an older
+    # form without the master-data fields) must not wipe it.
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(employee, field, value)
     db.commit()
     db.refresh(employee)

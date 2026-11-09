@@ -38,5 +38,8 @@ class WorkLocation(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     # Two-letter Indian state code (e.g. TN, MH, KA, DL) — drives Phase 2's
     # per-state Professional Tax slab lookup, so keep this accurate.
-    state_code: Mapped[str] = mapped_column(String(5), nullable=False)
+    # Nullable: a location created by the master import whose state can't be
+    # inferred is left blank (PT is then skipped with a warning) rather than
+    # guessed.
+    state_code: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="Active", nullable=False)

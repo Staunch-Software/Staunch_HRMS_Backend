@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import get_current_user
+from app.models.pay_group import PayGroup
 from app.models.pay_schedule import PaySchedule
 from app.models.payroll_run import PayrollRun, PayrollRunLineItem
 from app.schemas.payroll_run import (
@@ -22,6 +23,12 @@ router = APIRouter(tags=["payroll-runs"], dependencies=[Depends(get_current_user
 def create_payroll_run(payload: PayrollRunCreate, db: Session = Depends(get_db)):
     if not db.get(PaySchedule, payload.pay_schedule_id):
         raise HTTPException(status_code=404, detail="Pay schedule not found")
+    if payload.pay_group_id is not None:
+        group = db.get(PayGroup, payload.pay_group_id)
+        if not group:
+            raise HTTPException(status_code=404, detail="Pay group not found")
+        if not group.is_active:
+            raise HTTPException(status_code=400, detail=f"Pay group {group.code} is inactive")
     run = PayrollRun(status="Draft", source="InAppCalculation", **payload.model_dump())
     db.add(run)
     db.commit()

@@ -13,6 +13,9 @@ class PayrollRun(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     pay_schedule_id: Mapped[int] = mapped_column(ForeignKey("pay_schedules.id"), nullable=False)
+    # Set = scope is the pay group's employees and every line item is computed
+    # by the group's strategy. Null = the component-formula engine (unchanged).
+    pay_group_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pay_groups.id"), nullable=True, index=True)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     pay_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -35,6 +38,7 @@ class PayrollRun(Base, TimestampMixin):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     pay_schedule = relationship("PaySchedule")
+    pay_group = relationship("PayGroup")
     line_items: Mapped[list["PayrollRunLineItem"]] = relationship(
         back_populates="payroll_run", cascade="all, delete-orphan"
     )
