@@ -1,18 +1,23 @@
 from datetime import date
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, _utcnow
 from app.models.json_type import JSONType
 
 
 class PayGroup(Base, TimestampMixin):
     """One location/client-contract payroll model. `calc_model` picks the
-    strategy in services/payroll_engine/pay_groups; every number the strategy
-    uses (rates, caps, thresholds, standard days, skill tables) is in `params`
-    so HR can revise minimum wages as data."""
+    strategy in services/payroll_engine/pay_groups. calc_model FORMULA (every
+    group since the formula migration) calculates from `definition`: HR-edited
+    lines of formulas with constants, lookups and employee fields. `params`
+    keeps the legacy strategy params a converted group came from (reference
+    only); `definition_version` counts saves (history in
+    pay_group_definition_versions)."""
 
     __tablename__ = "pay_groups"
 
@@ -21,8 +26,28 @@ class PayGroup(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     calc_model: Mapped[str] = mapped_column(String(50), nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+    definition: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONType, nullable=True)
+    definition_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PayGroupDefinitionVersion(Base):
+    """Every saved definition of a FORMULA pay group; payroll runs record the
+    version they used (payroll_runs.pay_group_definition_version)."""
+
+    __tablename__ = "pay_group_definition_versions"
+    __table_args__ = (UniqueConstraint("pay_group_id", "version", name="uq_pay_group_definition_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pay_group_id: Mapped[int] = mapped_column(ForeignKey("pay_groups.id"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False)
+    changed_by: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, server_default=func.now()
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class EmployeePayProfile(Base, TimestampMixin):

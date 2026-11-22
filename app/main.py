@@ -6,15 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.services.attendance.scheduler import shutdown_scheduler, start_scheduler
+from app.services.leave.scheduler import shutdown_leave_scheduler, start_leave_scheduler
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # No-op unless ATTENDANCE_SYNC_ENABLED is true (tests force it off).
+    # No-op unless ATTENDANCE_SYNC_ENABLED / LEAVE_CREDIT_ENABLED (tests force both off).
     start_scheduler()
+    start_leave_scheduler()
     try:
         yield
     finally:
+        shutdown_leave_scheduler()
         shutdown_scheduler()
 
 

@@ -2,7 +2,9 @@ import re
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, computed_field, field_serializer, field_validator
+
+from app.core.crypto import is_masked, last_digits, mask_aadhaar, mask_pan, mask_tail
 
 IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 
@@ -20,6 +22,8 @@ class EmployeeBase(BaseModel):
     profile_picture_url: Optional[str] = None
     date_of_joining: Optional[date] = None
     date_of_leaving: Optional[date] = None
+    notice_start_date: Optional[date] = None
+    reporting_manager_id: Optional[int] = None
     basic_salary: Optional[float] = None
     mobile_number: Optional[str] = None
     gender: Optional[str] = None
@@ -80,14 +84,31 @@ class EmployeeStatusUpdate(BaseModel):
 
 class EmployeeRead(EmployeeBase):
     id: int
+    reporting_manager_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("aadhaar_number")
+    def _mask_aadhaar(self, v: Optional[str]) -> Optional[str]:
+        return mask_aadhaar(v)
+
+    @field_serializer("pan_number")
+    def _mask_pan(self, v: Optional[str]) -> Optional[str]:
+        return mask_pan(v)
+
+
+class EmployeeSensitiveRead(BaseModel):
+    employee_id: int
+    aadhaar_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    account_number: Optional[str] = None
 
 
 class EmployeeBankAccountBase(BaseModel):
     bank_name: str
     account_holder_name: str
-    account_number: str
+    # On update, None or a masked value keeps the stored number.
+    account_number: Optional[str] = None
     ifsc_code: str
     branch_name: Optional[str] = None
     account_type: Optional[str] = None  # Savings/Current
@@ -104,7 +125,9 @@ class EmployeeBankAccountBase(BaseModel):
 
     @field_validator("account_number")
     @classmethod
-    def validate_account_number(cls, v: str) -> str:
+    def validate_account_number(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or is_masked(v):
+            return v
         if not v or not v.isdigit():
             raise ValueError("Account Number should only contain digits.")
         return v
@@ -123,3 +146,12 @@ class EmployeeBankAccountRead(EmployeeBankAccountBase):
     employee_id: int
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def account_number_last4(self) -> Optional[str]:
+        return last_digits(self.account_number)
+
+    @field_serializer("account_number")
+    def _mask_account_number(self, v: Optional[str]) -> Optional[str]:
+        return mask_tail(v)

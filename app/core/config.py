@@ -26,8 +26,13 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
 
-    # Comma-separated origins, e.g. "http://localhost:3000,https://payroll.staunchtec.com"
-    CORS_ORIGINS: str = "http://localhost:3000"
+    # Comma-separated Fernet keys for field/file encryption at rest; the
+    # first is used for new writes. See app/core/crypto.py.
+    FIELD_ENCRYPTION_KEY: str = ""
+
+    # Comma-separated origins, e.g. "http://localhost:3000,https://payroll.staunchtec.com".
+    # https://localhost and capacitor://localhost are the Android / iOS app WebViews.
+    CORS_ORIGINS: str = "http://localhost:3000,https://localhost,capacitor://localhost"
 
     API_V1_PREFIX: str = "/api/v1"
 
@@ -70,7 +75,10 @@ class Settings(BaseSettings):
     # receive time and late-synced punches belong to the previous day.
     ATTENDANCE_SYNC_ENABLED: bool = True
     ATTENDANCE_SYNC_TIME: str = "23:30"
-    ATTENDANCE_SYNC_LOOKBACK_DAYS: int = 1
+    ATTENDANCE_SYNC_LOOKBACK_DAYS: int = 3
+    # Monthly leave credit (monthly-by-service types such as CL) on the 1st
+    # of each month at 00:30 server local time.
+    LEAVE_CREDIT_ENABLED: bool = True
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, ROUND_UP, Decimal, InvalidOperation
+from decimal import ROUND_DOWN, ROUND_HALF_UP, ROUND_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
 ZERO = Decimal("0")
@@ -50,7 +50,10 @@ AD_HOC_DEDUCTION_LABELS = {
     "EXCESS_WAGE_DEDUCTION": "Excess wage deduction",
 }
 
-NET_ROUNDING_CHOICES = ("NONE", "ROUND", "ROUNDUP")
+NET_ROUNDING_CHOICES = ("NONE", "ROUND", "ROUNDUP", "ROUNDDOWN")
+# BIOMETRIC / MUSTER: monthly attendance processing writes the LOP (Matrix
+# punches or muster uploads); INPUT: HR enters the monthly inputs directly.
+ATTENDANCE_SOURCES = ("BIOMETRIC", "MUSTER", "INPUT")
 
 
 class PayGroupCalculationError(ValueError):
@@ -122,9 +125,15 @@ class ParamField:
     kind: str  # number | skill_table | bool | choice
     description: str
     choices: tuple = ()
+    # Set = the key may be absent from a group's params (rows saved before
+    # the key existed) and this value applies.
+    default: Any = None
 
 
 COMMON_PARAM_SPEC: dict[str, ParamField] = {
+    "tds_enabled": ParamField(
+        "bool", "Deduct monthly income tax (TDS), projected over the financial year", default=True
+    ),
     "pf_applicable_default": ParamField(
         "bool", "PF applies when neither the pay profile nor the employee record says otherwise"
     ),
@@ -132,7 +141,13 @@ COMMON_PARAM_SPEC: dict[str, ParamField] = {
         "bool", "ESI applies when neither the pay profile nor the employee record says otherwise"
     ),
     "net_rounding": ParamField(
-        "choice", "Rounding applied to the final net pay (Excel ROUND / ROUNDUP / none)", NET_ROUNDING_CHOICES
+        "choice", "Rounding applied to the final net pay (Excel ROUND / ROUNDUP / ROUNDDOWN / none)", NET_ROUNDING_CHOICES
+    ),
+    "attendance_source": ParamField(
+        "choice",
+        "Where LOP comes from: BIOMETRIC / MUSTER = monthly attendance processing, INPUT = monthly inputs entered by HR",
+        ATTENDANCE_SOURCES,
+        default="INPUT",
     ),
 }
 
@@ -141,7 +156,7 @@ def validate_param_values(spec: dict[str, ParamField], params: Any) -> list[str]
     if not isinstance(params, dict):
         return ["params must be a JSON object"]
     errors: list[str] = []
-    missing = sorted(set(spec) - set(params))
+    missing = sorted(key for key in set(spec) - set(params) if spec[key].default is None)
     unknown = sorted(set(params) - set(spec))
     if missing:
         errors.append(f"missing keys: {', '.join(missing)}")
@@ -215,16 +230,21 @@ class PayInputs:
     earnings: dict[str, Decimal] = field(default_factory=dict)
     deductions: dict[str, Decimal] = field(default_factory=dict)
     has_input_row: bool = True
+    paid_leave_days: Decimal = ZERO
+    # Calendar days of the payroll month (formula variable DAYS_IN_MONTH).
+    days_in_month: Optional[int] = None
 
     @classmethod
-    def from_variable_input(cls, vi) -> "PayInputs":
+    def from_variable_input(cls, vi, days_in_month: Optional[int] = None) -> "PayInputs":
         if vi is None:
-            return cls(has_input_row=False)
+            return cls(has_input_row=False, days_in_month=days_in_month)
         return cls(
             present_days=dec(vi.present_days) if vi.present_days is not None else None,
             lop_days=dec(vi.lop_days),
             overtime_hours=dec(vi.overtime_hours),
             overtime_days=dec(getattr(vi, "overtime_days", None)),
+            paid_leave_days=dec(getattr(vi, "paid_leave_days", None)),
+            days_in_month=days_in_month,
             earnings=_sum_items(vi.ad_hoc_earnings),
             deductions=_sum_items(vi.ad_hoc_deductions),
         )
@@ -249,6 +269,39 @@ class PayLine:
     basis: Optional[str] = None
 
 
+ROUND_OFF_CODE = "ROUND_OFF"
+ONE_RUPEE = Decimal(1)
+
+
+def _is_round_off(line: PayLine) -> bool:
+    return line.code == ROUND_OFF_CODE and line.kind == EARNING and line.basis in NET_ROUNDING_CHOICES
+
+
+def settle_net_pay(lines: list[PayLine], mode: str) -> tuple[Decimal, Decimal, Decimal]:
+    """Applies the group's net rounding: appends a ROUND_OFF earning for the
+    difference when there is one. Returns (gross, total_deductions, net_pay)."""
+    gross_raw = sum((ln.amount for ln in lines if ln.kind == EARNING), ZERO)
+    ded_raw = sum((ln.amount for ln in lines if ln.kind == DEDUCTION), ZERO)
+    net_raw = gross_raw - ded_raw
+
+    if mode == "ROUND":
+        net = xl_round(net_raw)
+    elif mode == "ROUNDUP":
+        net = xl_roundup(net_raw)
+    elif mode == "ROUNDDOWN":
+        net = _clean(net_raw).quantize(ONE_RUPEE, rounding=ROUND_DOWN)
+    else:
+        net = q2(net_raw)
+
+    gross = q2(gross_raw)
+    deductions = q2(ded_raw)
+    round_off = net - (gross - deductions)
+    if round_off != 0:
+        lines.append(PayLine(ROUND_OFF_CODE, "Net pay round-off", EARNING, round_off, mode))
+        gross += round_off
+    return gross, deductions, net
+
+
 @dataclass
 class PayResult:
     gross: Decimal
@@ -265,6 +318,16 @@ class PayResult:
     def line_amount(self, code: str) -> Decimal:
         return sum((ln.amount for ln in self.lines if ln.code == code), ZERO)
 
+    def gross_before_round_off(self) -> Decimal:
+        return q2(sum((ln.amount for ln in self.lines if ln.kind == EARNING and not _is_round_off(ln)), ZERO))
+
+    def add_deduction(self, code: str, label: str, amount: Decimal, basis: Optional[str], net_rounding: str) -> None:
+        """Adds a deduction worked out after the strategy ran (TDS) and
+        re-applies the group's net rounding."""
+        self.lines = [ln for ln in self.lines if not _is_round_off(ln)]
+        self.lines.append(PayLine(code, label, DEDUCTION, amount, basis))
+        self.gross, self.total_deductions, self.net_pay = settle_net_pay(self.lines, net_rounding)
+
     def breakdown(self, calc_model: str) -> list[dict]:
         """Lines in the shape PayrollRunLineItem.computation_breakdown uses."""
         type_by_kind = {EARNING: "Earning", DEDUCTION: "Deduction", EMPLOYER_COST: "EmployerCost", INFO: "Info"}
@@ -277,6 +340,7 @@ class PayResult:
                 "calculation_method": f"PayGroup:{calc_model}",
                 "formula_or_value": ln.basis,
                 "resolved_amount": float(q2(ln.amount)),
+                **_line_extras(ln),
             }
             for ln in self.lines
         ]
@@ -292,6 +356,16 @@ class PayResult:
                 "warning": warning,
             })
         return entries
+
+
+def _line_extras(line: PayLine) -> dict:
+    """Formula-group lines carry their statutory tag and payslip flag."""
+    extras = {}
+    if getattr(line, "statutory_tag", None):
+        extras["statutory_tag"] = line.statutory_tag
+    if getattr(line, "show_on_payslip", None) is False:
+        extras["show_on_payslip"] = False
+    return extras
 
 
 class Ctx:
@@ -425,25 +499,8 @@ class PayGroupStrategy:
         return self._finalize(ctx)
 
     def _finalize(self, ctx: Ctx) -> PayResult:
-        gross_raw = sum((ln.amount for ln in ctx.lines if ln.kind == EARNING), ZERO)
-        ded_raw = sum((ln.amount for ln in ctx.lines if ln.kind == DEDUCTION), ZERO)
         employer = sum((ln.amount for ln in ctx.lines if ln.kind == EMPLOYER_COST), ZERO)
-        net_raw = gross_raw - ded_raw
-
-        mode = ctx.params["net_rounding"]
-        if mode == "ROUND":
-            net = xl_round(net_raw)
-        elif mode == "ROUNDUP":
-            net = xl_roundup(net_raw)
-        else:
-            net = q2(net_raw)
-
-        gross = q2(gross_raw)
-        deductions = q2(ded_raw)
-        round_off = net - (gross - deductions)
-        if round_off != 0:
-            ctx.earning("ROUND_OFF", "Net pay round-off", round_off, mode)
-            gross += round_off
+        gross, deductions, net = settle_net_pay(ctx.lines, ctx.params["net_rounding"])
 
         return PayResult(
             gross=gross,

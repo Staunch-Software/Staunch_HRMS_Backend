@@ -1,0 +1,79 @@
+{% import "_macros.html" as m %}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: a4 portrait; margin: 1.4cm 1.4cm 1.6cm 1.4cm; }
+  body { font-family: Helvetica; font-size: 9pt; color: #1f2937; }
+  .hbox { border: 1px solid #1f2937; border-bottom: none; padding: 2px; }
+  table.header { width: 100%; }
+  .header td { vertical-align: middle; padding: 8px 10px; }
+  .cname { font-size: 16pt; font-weight: bold; color: #111827; text-align: center; }
+  .rule { margin-top: 4px; border-top: 2px solid #c8102e; }
+  .addr { font-size: 8pt; color: #4b5563; text-align: center; }
+  .title { padding: 6px; text-align: center; font-size: 10.5pt; font-weight: bold;
+           background-color: #1f2937; color: #ffffff; border: 1px solid #1f2937; }
+  table.emp { width: 100%; margin-top: 8px; border: 0.5px solid #9ca3af; }
+  table.emp td { padding: 4px 6px; border-bottom: 0.5px solid #e5e7eb; }
+  table.emp td.lbl { width: 18%; color: #6b7280; }
+  table.emp td.val { width: 32%; font-weight: bold; }
+  table.pay { width: 100%; margin-top: 10px; border: 0.5px solid #9ca3af; }
+  table.pay th { background-color: #e5e7eb; padding: 5px 6px; font-size: 8.5pt; text-align: left; }
+  table.pay td { padding: 4px 6px; border-bottom: 0.5px solid #f3f4f6; }
+  table.pay .num { text-align: right; }
+  table.pay th.num { text-align: right; }
+  table.pay .sep { border-left: 0.5px solid #9ca3af; }
+  table.pay tr.total td { font-weight: bold; border-top: 0.5px solid #9ca3af; background-color: #f9fafb; }
+  .muted { color: #6b7280; }
+  .net { margin-top: 10px; border: 1px solid #1e3a8a; padding: 8px; }
+  .net-amt { font-size: 13pt; font-weight: bold; color: #1e3a8a; }
+  .words { font-size: 8.5pt; color: #374151; }
+  table.mini { width: 100%; border: 0.5px solid #9ca3af; }
+  table.mini th { background-color: #e5e7eb; padding: 4px 6px; font-size: 8.5pt; text-align: left; }
+  table.mini th.num { text-align: right; }
+  table.mini td { padding: 3px 6px; border-bottom: 0.5px solid #f3f4f6; }
+  table.mini .num { text-align: right; }
+  .footer { margin-top: 14px; font-size: 7.5pt; color: #6b7280; text-align: center; }
+</style>
+</head>
+<body>
+<div class="hbox"><table class="header">
+  <tr>
+    <td style="width: 18%;"><img src="{{ p.company.logo }}" style="height: 50px;"></td>
+    <td style="width: 64%;">
+      <div class="cname">{{ p.company.name | upper }}</div>
+      <table><tr><td style="width: 20%; padding: 0;"></td><td style="width: 60%; padding: 0;"><div class="rule"></div></td><td style="width: 20%; padding: 0;"></td></tr></table>
+      {{ m.company_lines(p) }}
+    </td>
+    <td style="width: 18%;"></td>
+  </tr>
+</table></div>
+<div class="title">PAYSLIP FOR THE MONTH OF {{ p.month_label | upper }}</div>
+
+<table class="emp">{{ m.employee_rows(p, 2) }}</table>
+
+{{ m.pay_table(p, "pay") }}
+
+<div class="net">
+  <table>
+    <tr>
+      <td style="width: 60%;"><span class="net-amt">Net pay: Rs. {{ p.totals.net }}</span></td>
+      <td style="width: 40%; text-align: right;" class="muted">{% if p.ytd %}Net pay YTD: Rs. {{ p.ytd.net }}{% endif %}</td>
+    </tr>
+  </table>
+  <div class="words">{{ p.totals.net_words }}</div>
+</div>
+
+{% if p.attendance or p.leave or p.employer %}
+<table style="margin-top: 10px;">
+  <tr>
+    <td style="width: 49%; vertical-align: top;">{{ m.attendance_table(p) }}</td>
+    <td style="width: 2%;"></td>
+    <td style="width: 49%; vertical-align: top;">{{ m.leave_table(p) }}{% if p.leave and p.employer %}<div style="height: 8px;"></div>{% endif %}{{ m.employer_table(p) }}</td>
+  </tr>
+</table>
+{% endif %}
+
+<div class="footer">{{ p.footer_note or "" }}</div>
+</body>
+</html>

@@ -10,6 +10,7 @@ from app.core.security import hash_password
 from app.models.company_bank_config import CompanyBankConfig
 from app.models.org import Department, Designation, WorkLocation
 from app.models.user import AdminUser
+from app.db.seed.leave_seed import seed_leave_defaults
 from app.db.seed.pay_groups_seed import seed_pay_groups
 from app.db.seed.salary_components_seed import seed_salary_components
 from app.db.seed.statutory_seed import seed_statutory_all
@@ -138,11 +139,12 @@ def seed_all() -> None:
         seed_statutory_all(db)
         seed_company_bank_config(db)
         seed_pay_groups(db)
+        seed_leave_defaults(db)
         print("Seed complete.")
         print(
-            "NOTE: all seeded Professional Tax and TDS slabs are marked "
-            "is_verified=False — confirm against current state/central law "
-            "before running live payroll."
+            "NOTE: all seeded Professional Tax slabs are marked "
+            "is_verified=False — confirm against current state law "
+            "before running live payroll. FY 2026-27 TDS rules are verified."
         )
         print(
             "NOTE: the seeded bank disbursement format (generic_neft_xlsx_v1) "

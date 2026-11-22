@@ -10,9 +10,10 @@ verified/real, both must be replaced before an actual disbursement.
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from app.core.crypto import mask_tail
 from app.core.db import get_db
 from app.core.security import get_current_user
 from app.models.company_bank_config import CompanyBankConfig
@@ -21,7 +22,7 @@ from app.models.employee import EmployeeBankAccount
 from app.models.payroll_run import PayrollRun, PayrollRunLineItem
 from app.schemas.company_bank_config import CompanyBankConfigRead, CompanyBankConfigUpdate
 from app.schemas.disbursement import DisbursementBatchCreate, DisbursementBatchRead, DisbursementDataRow
-from app.services.bank_file.generate import GENERATED_FILES_DIR, generate_bank_file
+from app.services.bank_file.generate import GENERATED_FILES_DIR, generate_bank_file, read_generated_file
 from app.services.bank_file.registry import get_media_type
 
 router = APIRouter(tags=["disbursement"], dependencies=[Depends(get_current_user)])
@@ -105,12 +106,12 @@ def download_disbursement_batch(batch_id: int, db: Session = Depends(get_db)):
     if not file_path.exists():
         raise HTTPException(status_code=410, detail="The generated file is no longer available on disk.")
 
-    # Streams the exact bytes written at generation time — never regenerated
-    # here, so this is guaranteed byte-for-byte identical to the original.
-    return FileResponse(
-        path=str(file_path),
+    # Returns the exact bytes written at generation time (decrypted) — never
+    # regenerated here, so this is guaranteed byte-for-byte identical to the original.
+    return Response(
+        content=read_generated_file(file_path),
         media_type=get_media_type(batch.format_key),
-        filename=batch.file_name,
+        headers={"Content-Disposition": f'attachment; filename="{batch.file_name}"'},
     )
 
 
@@ -149,7 +150,7 @@ def get_disbursement_data(run_id: int, db: Session = Depends(get_db)):
                 "employee_code": snapshot.get("employee_code") or str(line_item.employee_id),
                 "name": snapshot.get("name") or f"Employee #{line_item.employee_id}",
                 "bank_name": bank.bank_name if bank else None,
-                "account_number": bank.account_number if bank else None,
+                "account_number": mask_tail(bank.account_number) if bank else None,
                 "ifsc_code": bank.ifsc_code if bank else None,
                 "net_pay": float(line_item.net_pay),
             }

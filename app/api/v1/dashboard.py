@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from datetime import date
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import get_current_user
 from app.models.employee import Employee
-from app.schemas.dashboard import PayrollSummaryResponse
+from app.schemas.dashboard import DashboardOverview, PayrollSummaryResponse
+from app.services.dashboard import build_overview
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(get_current_user)])
 
@@ -30,3 +33,14 @@ def payroll_summary(db: Session = Depends(get_db)):
         taxesWithheld=0,
         deductions=0,
     )
+
+
+@router.get("/dashboard/overview", response_model=DashboardOverview)
+def dashboard_overview(
+    as_of: Optional[date] = Query(None, description="Day to report on; defaults to today."),
+    db: Session = Depends(get_db),
+):
+    """Headcount, today's attendance, leave, pending approvals and payroll
+    figures for the HR dashboard. Empty data gives zeros, empty lists and a
+    null payroll_summary rather than an error."""
+    return build_overview(db, as_of or date.today())

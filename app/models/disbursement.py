@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.crypto import EncryptedString
 from app.models.base import Base, TimestampMixin
 
 
@@ -79,7 +80,7 @@ class DisbursementBatchItem(Base, TimestampMixin):
     # historical disbursement file said.
     employee_code: Mapped[str] = mapped_column(String(30), nullable=False)
     beneficiary_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    account_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    account_number: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     ifsc_code: Mapped[str] = mapped_column(String(11), nullable=False)
     bank_name: Mapped[str] = mapped_column(String(150), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)

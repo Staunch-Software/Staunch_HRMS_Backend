@@ -19,3 +19,7 @@ simpleeval>=0.9,<1.0
 pandas>=2.2,<3.0
 openpyxl>=3.1,<4.0
 apscheduler>=3.10,<4.0
+# Payslip PDFs (HTML templates -> PDF, optional PDF password).
+xhtml2pdf==0.2.28
+jinja2==3.1.6
+pypdf==7.1.1

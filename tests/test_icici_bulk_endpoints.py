@@ -4,6 +4,7 @@ GET .../icici/status. ICICIClient's network methods are monkeypatched —
 these tests never construct a real httpx transport, so there is no
 possibility of a real call reaching ICICI even indirectly.
 """
+import base64
 from datetime import date
 
 import pytest
@@ -231,6 +232,9 @@ def test_submit_two_step_otp_flow_then_status_check(client, db_session, configur
     assert captured_bulk_payment_call["unique_id"] == captured_otp_unique_id["value"]
     assert captured_bulk_payment_call["otp"] == "123456"
     assert captured_bulk_payment_call["file_name"] == batch["file_name"]
+    # The file is encrypted on disk; ICICI must receive the decrypted original.
+    sent = base64.b64decode(captured_bulk_payment_call["file_content_base64"])
+    assert sent.startswith(b"FHR") and b"000405011155" in sent
 
     db_session.refresh(db_batch)
     assert db_batch.icici_file_sequence_num == "999111"

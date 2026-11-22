@@ -1,6 +1,8 @@
-"""Seeds the seven location/client-contract pay groups. Idempotent: an
-existing group (matched on code) is left untouched, because HR may have
-revised its params (minimum wages change twice a year) since it was seeded.
+"""Seeds the seven location/client-contract pay groups as FORMULA groups:
+each definition is converted from the legacy strategy params below (kept
+on the row as `params` for reference) and saved as definition version 1.
+Idempotent: an existing group (matched on code) is left untouched, because
+HR may have revised it (minimum wages change twice a year) since it was seeded.
 """
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": False,
             "esi_applicable_default": False,
             "net_rounding": "NONE",
+            "tds_enabled": True,
+            "attendance_source": "BIOMETRIC",
             "standard_days": 30,
             "statutory_gross_pct": 0.80,
             "basic_da_pct": 0.70,
@@ -44,6 +48,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "ROUND",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 30,
             "per_day_allowance": 492.3,
             "pf_flat_base": 25000,
@@ -60,6 +66,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "NONE",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 26,
             "basic_pct": 0.50,
             "da_pct": 0.25,
@@ -84,6 +92,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "ROUNDUP",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 26,
             "allowance_per_day_by_skill": {"DEFAULT": 149.73},
             "transport_per_day_by_skill": {"DEFAULT": 0},
@@ -104,6 +114,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "ROUNDUP",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 26,
             "allowance_per_day_by_skill": {"HIGHLY_SKILLED": 149.73, "SKILLED": 144.73, "SEMI_SKILLED": 136.6},
             "transport_per_day_by_skill": {"HIGHLY_SKILLED": 35.93, "SKILLED": 34.73, "SEMI_SKILLED": 32.78},
@@ -124,6 +136,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "ROUNDUP",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 26,
             "allowance_per_day_by_skill": {"HIGHLY_SKILLED": 149.73, "SKILLED": 144.73, "SEMI_SKILLED": 136.6},
             "transport_per_day_by_skill": {"DEFAULT": 0},
@@ -144,6 +158,8 @@ PAY_GROUPS_SEED = [
             "pf_applicable_default": True,
             "esi_applicable_default": False,
             "net_rounding": "ROUND",
+            "tds_enabled": True,
+            "attendance_source": "INPUT",
             "standard_days": 26,
             "basic_per_day_by_skill": {"SKILLED": 579, "SEMI_SKILLED": 494},
             "da_per_day_by_skill": {"SKILLED": 339, "SEMI_SKILLED": 287},
@@ -163,11 +179,17 @@ SEED_CALC_MODEL_BY_CODE = {g["code"]: g["calc_model"] for g in PAY_GROUPS_SEED}
 
 
 def seed_pay_groups(db: Session) -> None:
+    from app.services.payroll_engine.formula.history import converted_definition, save_definition
+
     created = 0
     for data in PAY_GROUPS_SEED:
         if db.query(PayGroup).filter(PayGroup.code == data["code"]).first():
             continue
-        db.add(PayGroup(is_active=True, **{**data, "params": dict(data["params"])}))
+        params = dict(data["params"])
+        group = PayGroup(code=data["code"], name=data["name"], description=data["description"], is_active=True,
+                         calc_model="FORMULA", params=params, definition_version=0)
+        definition = converted_definition(data["calc_model"], params, data["code"])
+        save_definition(db, group, definition, "seed", f"Created from the {data['calc_model']} model")
         created += 1
     db.commit()
     print(f"Pay groups: {created} created, {len(PAY_GROUPS_SEED) - created} already present.")

@@ -1,9 +1,11 @@
 """Payroll-run integration for pay groups. A run with `pay_group_id` set is
 scoped to the employees whose pay profile (effective on the run's
 period_end) belongs to that group, and every line item is computed by the
-group's strategy. Line items are persisted exactly like the component
-engine's, so review -> approve -> bank file is unchanged.
+group's strategy (FORMULA groups: their definition, whose version the run
+records). Line items are persisted exactly like the component engine's, so
+review -> approve -> bank file is unchanged.
 """
+import calendar
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -16,8 +18,12 @@ from app.services.payroll_engine.pay_groups import (
     PayGroupCalculationError,
     PayGroupParamsError,
     PayInputs,
+    PayResult,
     get_strategy,
+    group_config,
 )
+from app.services.payroll_engine.pay_groups.formula_strategy import FORMULA
+from app.services.payroll_engine.statutory import tds as tds_calc
 
 
 def resolve_pay_profile(db: Session, employee_id: int, as_of: date) -> EmployeePayProfile | None:
@@ -66,6 +72,21 @@ def resolve_pay_group_scope(db: Session, run: PayrollRun) -> list[tuple[Employee
     return scope
 
 
+def apply_tds(db: Session, run: PayrollRun, employee: Employee, result: PayResult, net_rounding: str) -> None:
+    """Adds this month's TDS (on gross before net-pay round-off) as a 'TDS'
+    deduction and re-rounds net pay; no line when it is 0."""
+    tds = tds_calc.compute_monthly_tds(db, employee, run.period_end, result.gross_before_round_off(), run_id=run.id)
+    if tds["warning"]:
+        result.warnings.append(tds["warning"])
+    if tds["amount"] > 0:
+        basis = (
+            f"{tds['regime']} regime FY {tds['financial_year']}: annual tax {tds['annual_tax']} "
+            f"on projected {tds['annual_projection']}, less YTD TDS {tds['ytd_tds']}, "
+            f"over {tds['months_remaining']} months"
+        )
+        result.add_deduction(tds_calc.TDS_CODE, "Income tax (TDS)", tds["amount"], basis, net_rounding)
+
+
 def calculate_pay_group_line_items(db: Session, run: PayrollRun) -> list[PayrollRunLineItem]:
     from app.services.payroll_engine.engine import _employee_snapshot  # local: engine imports this module
 
@@ -75,9 +96,15 @@ def calculate_pay_group_line_items(db: Session, run: PayrollRun) -> list[Payroll
     if not group.is_active:
         raise PayGroupParamsError(f"Pay group '{group.code}' is inactive.")
     strategy = get_strategy(group.calc_model)
-    errors = strategy.validate_params(group.params)
+    config = group_config(group)
+    errors = strategy.validate_params(config)
     if errors:
-        raise PayGroupParamsError(f"Pay group '{group.code}' has invalid params: " + "; ".join(errors))
+        what = "definition" if group.calc_model == FORMULA else "params"
+        raise PayGroupParamsError(f"Pay group '{group.code}' has an invalid {what}: " + "; ".join(errors))
+    run.pay_group_definition_version = group.definition_version if group.calc_model == FORMULA else None
+    days_in_month = calendar.monthrange(run.period_end.year, run.period_end.month)[1]
+    net_rounding = config.get("net_rounding") or "NONE"
+    tds_enabled = config.get("tds_enabled")
 
     header = {
         "component_code": "_PAY_GROUP",
@@ -88,6 +115,8 @@ def calculate_pay_group_line_items(db: Session, run: PayrollRun) -> list[Payroll
         "formula_or_value": group.code,
         "resolved_amount": 0.0,
     }
+    if group.calc_model == FORMULA:
+        header["definition_version"] = group.definition_version
 
     items = []
     for employee, profile in resolve_pay_group_scope(db, run):
@@ -102,7 +131,10 @@ def calculate_pay_group_line_items(db: Session, run: PayrollRun) -> list[Payroll
             .first()
         )
         try:
-            result = strategy.calculate(profile, employee, PayInputs.from_variable_input(vi), group.params)
+            inputs = PayInputs.from_variable_input(vi, days_in_month)
+            result = strategy.calculate(profile, employee, inputs, config)
+            if tds_enabled is None or tds_enabled:
+                apply_tds(db, run, employee, result, net_rounding)
         except PayGroupCalculationError as exc:
             items.append(PayrollRunLineItem(
                 payroll_run_id=run.id, employee_id=employee.id, employee_snapshot=snapshot,

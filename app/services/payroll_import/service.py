@@ -17,7 +17,13 @@ from app.models.pay_group import EmployeePayProfile, PayGroup
 from app.models.pay_schedule import PaySchedule
 from app.models.payroll_run import PayrollRun
 from app.models.variable_pay import VariablePayInput
-from app.services.payroll_engine.pay_groups import PayGroupCalculationError, PayGroupParamsError, get_strategy
+from app.services.payroll_engine.pay_groups import (
+    PayGroupCalculationError,
+    PayGroupParamsError,
+    calculate_for_group,
+    extract_params,
+    validate_profile_for_group,
+)
 from app.services.payroll_engine.pay_groups.base import dec
 from app.services.payroll_import.excel_extract import (
     PROFILE_FIELDS,
@@ -36,6 +42,7 @@ from app.services.payroll_import.matching import (
     employee_display_name,
     mark_duplicates,
 )
+from app.services.variable_pay_inputs import find_input, locked_employee_ids
 
 IMPORT_SOURCE = "ExcelImport"
 SCHEDULE_NAME = "Monthly (Pay Groups)"
@@ -66,7 +73,7 @@ def preview(db: Session, file_bytes: bytes, period: str) -> dict[str, Any]:
     period_start, period_end = parse_period(period)
     groups = {g.code: g for g in db.query(PayGroup).all()}
     try:
-        sheets, missing = extract_workbook(file_bytes, {code: g.params or {} for code, g in groups.items()})
+        sheets, missing = extract_workbook(file_bytes, {code: extract_params(g) for code, g in groups.items()})
     except Exception as exc:  # noqa: BLE001 - openpyxl raises many types for bad files
         raise PayrollImportError(f"Could not read the workbook: {exc}") from exc
     if not sheets:
@@ -100,8 +107,7 @@ def preview(db: Session, file_bytes: bytes, period: str) -> dict[str, Any]:
             if row.case is not None and group is not None:
                 employee = matcher.by_id.get(m.employee_id) if m.employee_id else None
                 try:
-                    computed = float(get_strategy(group.calc_model).calculate(
-                        row.case.profile, employee, row.case.inputs, group.params or {}).net_pay)
+                    computed = float(calculate_for_group(group, row.case.profile, employee, row.case.inputs).net_pay)
                 except (PayGroupCalculationError, PayGroupParamsError) as exc:
                     notes.append(f"cannot calculate: {exc}")
             if row.case is not None and (computed is None or abs(dec(computed) - row.case.excel_net) > 1):
@@ -255,7 +261,7 @@ def _plan(db: Session, resolved, groups: dict, period_start: date, skipped: list
         if group is None or not group.is_active:
             skipped.append({**_ref(row), "reason": f"pay group {row['pay_group_code']} is missing or inactive"})
             continue
-        errors = get_strategy(group.calc_model).validate_profile(profile_from_dict(row["profile"]), group.params or {})
+        errors = validate_profile_for_group(group, profile_from_dict(row["profile"]))
         if errors:
             skipped.append({**_ref(row), "reason": "invalid pay profile: " + "; ".join(errors)})
             continue
@@ -295,12 +301,7 @@ def _existing_runs(db: Session, groups: dict, period_start: date, period_end: da
 def _upsert_inputs(db: Session, batch_id: str, row: dict, employee: Employee, period_start: date,
                    period_end: date) -> bool:
     inputs = row["inputs"]
-    vi = (
-        db.query(VariablePayInput)
-        .filter(VariablePayInput.employee_id == employee.id, VariablePayInput.period_start == period_start,
-                VariablePayInput.period_end == period_end)
-        .first()
-    )
+    vi = find_input(db, employee.id, period_start, period_end)
     created = vi is None
     if created:
         vi = VariablePayInput(employee_id=employee.id, period_start=period_start, period_end=period_end)
@@ -325,13 +326,7 @@ def commit(db: Session, batch_id: str, meta: dict, rows: list[dict], decisions: 
     resolved, skipped = _resolve_rows(db, rows, decisions)
     groups = {g.code: g for g in db.query(PayGroup).all()}
 
-    employee_ids = [e.id for _, e in resolved]
-    if employee_ids and db.query(VariablePayInput).filter(
-        VariablePayInput.employee_id.in_(employee_ids),
-        VariablePayInput.period_start == period_start,
-        VariablePayInput.period_end == period_end,
-        VariablePayInput.status == "Locked",
-    ).first():
+    if locked_employee_ids(db, [e.id for _, e in resolved], period_start, period_end):
         raise PayrollImportError(
             f"Variable inputs for {period_start:%Y-%m} are Locked - a payroll run has already consumed them, "
             "so this import cannot replace them.", status_code=409)

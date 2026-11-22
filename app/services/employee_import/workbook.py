@@ -74,6 +74,12 @@ EXACT_HEADERS = {
     "client": "client", "clientbranch": "client_branch",
     "dol": "date_of_leaving", "dateofleaving": "date_of_leaving", "dateofrelieving": "date_of_leaving",
     "relievingdate": "date_of_leaving",
+    "reportingmanager": "reporting_manager", "reportingmanagername": "reporting_manager",
+    "reportingto": "reporting_manager", "reportsto": "reporting_manager", "manager": "reporting_manager",
+    "managername": "reporting_manager",
+    "reportingmanagerid": "reporting_manager_code", "reportingmanagercode": "reporting_manager_code",
+    "reportingmanagerempid": "reporting_manager_code", "managerid": "reporting_manager_code",
+    "managercode": "reporting_manager_code", "managerempid": "reporting_manager_code",
 }
 PREFIX_HEADERS = [
     ("employmenttype", "employment_type"),
@@ -148,6 +154,8 @@ FIELD_PARSERS: dict[str, Callable[[Any], tuple]] = {
     "client": v.parse_label,
     "client_branch": v.parse_label,
     "date_of_leaving": v.parse_date,
+    "reporting_manager": v.parse_free_text,
+    "reporting_manager_code": v.parse_free_text,
 }
 
 # Fields whose successful parse is real evidence that a column lines up.

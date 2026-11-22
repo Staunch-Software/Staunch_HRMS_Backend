@@ -19,6 +19,8 @@ class PayrollRunRead(BaseModel):
     id: int
     pay_schedule_id: int
     pay_group_id: Optional[int] = None
+    # Definition version of the (FORMULA) pay group used by the last calculation.
+    pay_group_definition_version: Optional[int] = None
     period_start: date
     period_end: date
     pay_date: date
@@ -32,6 +34,9 @@ class PayrollRunRead(BaseModel):
     calculated_at: Optional[datetime] = None
     approved_at: Optional[datetime] = None
     approved_by: Optional[str] = None
+    calculated_by: Optional[str] = None
+    submitted_by: Optional[str] = None
+    submitted_at: Optional[datetime] = None
     paid_at: Optional[datetime] = None
     created_by: Optional[str] = None
     error_message: Optional[str] = None

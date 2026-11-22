@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import Session
 
+from app.core.crypto import hmac_hash, mask_tail
 from app.models.employee import Employee, EmployeeBankAccount
 from app.models.payroll_run import PayrollRun, PayrollRunLineItem
 from app.models.salary_component import SalaryComponent
@@ -183,6 +184,7 @@ def _employee_snapshot(db: Session, employee: Employee) -> dict:
         .order_by(EmployeeBankAccount.id.desc())
         .first()
     )
+    account = bank.account_number if bank else None
     return {
         "employee_code": employee.employee_code,
         "name": f"{employee.first_name} {employee.last_name or ''}".strip(),
@@ -193,7 +195,9 @@ def _employee_snapshot(db: Session, employee: Employee) -> dict:
         "state_code": employee.work_location.state_code if employee.work_location else None,
         "bank_name": bank.bank_name if bank else None,
         "account_holder_name": bank.account_holder_name if bank else None,
-        "account_number": bank.account_number if bank else None,
+        # Never the full number: masked for display, keyed hash for duplicate checks.
+        "account_number_masked": mask_tail(account) if account else None,
+        "account_hash": hmac_hash(account) if account else None,
         "ifsc_code": bank.ifsc_code if bank else None,
     }
 
@@ -361,9 +365,9 @@ def _calculate_employee(db: Session, run: PayrollRun, employee: Employee, financ
                 amount = result["amount"]
                 warning = result["warning"]
             elif use_dedicated and component.statutory_type == "TDS":
-                result = tds_calc.estimate_monthly_tds(db, employee.id, gross_earnings * Decimal("12"), financial_year)
-                amount = result["monthly_tds"]
-                warning = result["note"]
+                result = tds_calc.compute_monthly_tds(db, employee, run.period_end, gross_earnings, run_id=run.id)
+                amount = result["amount"]
+                warning = result["warning"]
             elif component.calculation_method == "Fixed Amount":
                 amount = _to_decimal(value_source)
             elif component.calculation_method == "Percentage/Formula":

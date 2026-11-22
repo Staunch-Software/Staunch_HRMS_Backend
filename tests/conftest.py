@@ -2,6 +2,10 @@ import os
 
 # Never start the in-process attendance scheduler (or hit Matrix) from tests.
 os.environ["ATTENDANCE_SYNC_ENABLED"] = "false"
+os.environ["LEAVE_CREDIT_ENABLED"] = "false"
+# Deterministic test-only Fernet key (base64 of 32 fixed bytes); never a real key.
+TEST_FIELD_ENCRYPTION_KEY = "c3RhdW5jaC1ocm1zLXRlc3Qta2V5LW5vdC00LXByb2Q="
+os.environ["FIELD_ENCRYPTION_KEY"] = TEST_FIELD_ENCRYPTION_KEY
 
 import pytest
 from sqlalchemy import create_engine

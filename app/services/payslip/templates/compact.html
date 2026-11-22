@@ -1,0 +1,73 @@
+{% import "_macros.html" as m %}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: a4 portrait; margin: 1cm 1.1cm 1.2cm 1.1cm; }
+  body { font-family: Helvetica; font-size: 8pt; color: #111827; }
+  .cname { font-size: 12pt; font-weight: bold; }
+  .addr { font-size: 7pt; color: #4b5563; }
+  .month { font-size: 10pt; font-weight: bold; color: #1e40af; }
+  .rule { border-bottom: 1px solid #1e40af; margin: 4px 0 6px 0; }
+  table.emp { width: 100%; }
+  table.emp td { padding: 2px 4px; }
+  table.emp td.lbl { width: 11%; color: #6b7280; font-size: 7pt; }
+  table.emp td.val { width: 22%; font-weight: bold; }
+  table.pay { width: 100%; margin-top: 6px; border: 0.5px solid #d1d5db; }
+  table.pay th { background-color: #f3f4f6; padding: 3px 4px; font-size: 7.5pt; text-align: left; }
+  table.pay th.num { text-align: right; }
+  table.pay td { padding: 2px 4px; }
+  table.pay .num { text-align: right; }
+  table.pay .sep { border-left: 0.5px solid #d1d5db; }
+  table.pay tr.total td { font-weight: bold; border-top: 0.5px solid #d1d5db; }
+  .muted { color: #6b7280; }
+  .netline { margin-top: 6px; padding: 4px 6px; background-color: #eff6ff; }
+  .netamt { font-size: 10pt; font-weight: bold; color: #1e40af; }
+  table.mini { width: 100%; border: 0.5px solid #d1d5db; }
+  table.mini th { background-color: #f3f4f6; padding: 2px 4px; font-size: 7.5pt; text-align: left; }
+  table.mini th.num { text-align: right; }
+  table.mini td { padding: 2px 4px; }
+  table.mini .num { text-align: right; }
+  .footer { margin-top: 8px; font-size: 6.5pt; color: #6b7280; }
+</style>
+</head>
+<body>
+<table>
+  <tr>
+    <td style="width: 12%;"><img src="{{ p.company.logo }}" style="height: 34px;"></td>
+    <td style="width: 58%;">
+      <div class="cname">{{ p.company.name }}</div>
+      {{ m.company_lines(p) }}
+    </td>
+    <td style="width: 30%; text-align: right;">
+      <div class="month">Payslip {{ p.month_label }}</div>
+      <div class="addr">{{ p.period.start }} - {{ p.period.end }}</div>
+    </td>
+  </tr>
+</table>
+<div class="rule"></div>
+
+<table class="emp">{{ m.employee_rows(p, 3) }}</table>
+
+{{ m.pay_table(p, "pay") }}
+
+<div class="netline">
+  <span class="netamt">Net pay Rs. {{ p.totals.net }}</span>
+  &nbsp; <span class="muted">({{ p.totals.net_words }})</span>{% if p.ytd %} &nbsp; <span class="muted">YTD net Rs. {{ p.ytd.net }}</span>{% endif %}
+</div>
+
+{% if p.attendance or p.leave or p.employer %}
+<table style="margin-top: 6px;">
+  <tr>
+    <td style="width: 32%; vertical-align: top;">{{ m.attendance_table(p) }}</td>
+    <td style="width: 2%;"></td>
+    <td style="width: 32%; vertical-align: top;">{{ m.leave_table(p) }}</td>
+    <td style="width: 2%;"></td>
+    <td style="width: 32%; vertical-align: top;">{{ m.employer_table(p) }}</td>
+  </tr>
+</table>
+{% endif %}
+
+<div class="footer">{{ p.footer_note or "" }}</div>
+</body>
+</html>

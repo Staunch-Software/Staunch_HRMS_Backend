@@ -2,12 +2,14 @@
 is_active=True) and pt_states / pt_slabs / tds_slabs / tds_config.
 
 *** IMPORTANT — READ BEFORE USING FOR REAL PAYROLL ***
-Every PT slab and every TDS slab/config row seeded here is marked
-`is_verified=False` with a `notes` disclaimer. These figures come from the
-seeder's general training knowledge, NOT a live/current lookup of state PT
-Acts or the current Finance Act — Indian PT slabs change per state
-government on no fixed schedule, and TDS slabs/rebates change every Union
-Budget. CONFIRM EVERY ROW AGAINST CURRENT LAW BEFORE RUNNING LIVE PAYROLL.
+Every PT slab seeded here is marked `is_verified=False` with a `notes`
+disclaimer: the figures come from general knowledge, not a live lookup of
+state PT Acts, which change per state on no fixed schedule. Confirm them
+against current law before running live payroll.
+
+The FY 2026-27 TDS rows (both regimes) are `is_verified=True`: they match the
+incometax.gov.in rate table for AY 2026-27, which Budget 2026-27 left
+unchanged. Add a new financial_year entry to TDS_SEED after every Budget.
 """
 from datetime import date
 
@@ -23,10 +25,10 @@ PT_UNVERIFIED_NOTE = (
     "before running live payroll."
 )
 
-TDS_UNVERIFIED_NOTE = (
-    "Seeded from general knowledge, not verified against the current Finance "
-    "Act as of this build — confirm against the latest Union Budget / CBDT "
-    "notification before running live payroll."
+TDS_VERIFIED_NOTE = (
+    "Verified against the incometax.gov.in tax-rate table for AY 2026-27; Union "
+    "Budget 2026-27 left the salary slabs, standard deduction, rebate, surcharge "
+    "and cess unchanged for tax year 2026-27. Individual below 60 years."
 )
 
 # state_code -> (state name, [(income_min, income_max, tax_amount)], periodicity)
@@ -72,24 +74,52 @@ PT_SLAB_SEED = {
     ),
 }
 
-# financial_year -> [(income_from, income_to, rate)] — New regime only.
-TDS_SLAB_SEED = {
-    "2026-27": [
-        (0, 300000, 0.0),
-        (300000, 600000, 0.05),
-        (600000, 900000, 0.10),
-        (900000, 1200000, 0.15),
-        (1200000, 1500000, 0.20),
-        (1500000, None, 0.30),
-    ]
-}
-
-TDS_CONFIG_SEED = {
-    "financial_year": "2026-27",
-    "standard_deduction": 75000,
-    "cess_rate": 0.04,
-    "rebate_87a_income_limit": 700000,
-    "rebate_87a_max_amount": 25000,
+# financial_year -> regime -> (config, [(income_from, income_to, rate)])
+TDS_SEED = {
+    "2026-27": {
+        "New": (
+            {
+                "standard_deduction": 75000,
+                "cess_rate": 0.04,
+                "rebate_87a_income_limit": 1200000,
+                "rebate_87a_max_amount": 60000,
+                "surcharge_bands": [
+                    {"above": 5000000, "rate": 0.10},
+                    {"above": 10000000, "rate": 0.15},
+                    {"above": 20000000, "rate": 0.25},
+                ],
+            },
+            [
+                (0, 400000, 0.0),
+                (400000, 800000, 0.05),
+                (800000, 1200000, 0.10),
+                (1200000, 1600000, 0.15),
+                (1600000, 2000000, 0.20),
+                (2000000, 2400000, 0.25),
+                (2400000, None, 0.30),
+            ],
+        ),
+        "Old": (
+            {
+                "standard_deduction": 50000,
+                "cess_rate": 0.04,
+                "rebate_87a_income_limit": 500000,
+                "rebate_87a_max_amount": 12500,
+                "surcharge_bands": [
+                    {"above": 5000000, "rate": 0.10},
+                    {"above": 10000000, "rate": 0.15},
+                    {"above": 20000000, "rate": 0.25},
+                    {"above": 50000000, "rate": 0.37},
+                ],
+            },
+            [
+                (0, 250000, 0.0),
+                (250000, 500000, 0.05),
+                (500000, 1000000, 0.20),
+                (1000000, None, 0.30),
+            ],
+        ),
+    }
 }
 
 
@@ -159,38 +189,45 @@ def seed_pt(db: Session) -> None:
 
 
 def seed_tds(db: Session) -> None:
-    for financial_year, slabs in TDS_SLAB_SEED.items():
-        existing = (
-            db.query(TDSSlab)
-            .filter(TDSSlab.financial_year == financial_year, TDSSlab.regime == "New")
-            .count()
-        )
-        if existing:
-            continue
-        for income_from, income_to, rate in slabs:
-            db.add(
-                TDSSlab(
-                    regime="New",
-                    financial_year=financial_year,
-                    income_from=income_from,
-                    income_to=income_to,
-                    rate=rate,
-                    is_verified=False,
-                    notes=TDS_UNVERIFIED_NOTE,
+    """Per (financial_year, regime): slabs and config are each skipped when
+    rows already exist, so HR edits are never overwritten."""
+    for financial_year, regimes in TDS_SEED.items():
+        for regime, (config, slabs) in regimes.items():
+            has_slabs = (
+                db.query(TDSSlab)
+                .filter(TDSSlab.financial_year == financial_year, TDSSlab.regime == regime)
+                .count()
+            )
+            if not has_slabs:
+                for income_from, income_to, rate in slabs:
+                    db.add(
+                        TDSSlab(
+                            regime=regime,
+                            financial_year=financial_year,
+                            income_from=income_from,
+                            income_to=income_to,
+                            rate=rate,
+                            is_verified=True,
+                            notes=TDS_VERIFIED_NOTE,
+                        )
+                    )
+            has_config = (
+                db.query(TDSConfig)
+                .filter(TDSConfig.financial_year == financial_year, TDSConfig.regime == regime)
+                .first()
+            )
+            if not has_config:
+                db.add(
+                    TDSConfig(
+                        financial_year=financial_year,
+                        regime=regime,
+                        **config,
+                        is_active=True,
+                        is_verified=True,
+                        notes=TDS_VERIFIED_NOTE,
+                    )
                 )
-            )
-        db.commit()
-
-    if not db.query(TDSConfig).filter(TDSConfig.financial_year == TDS_CONFIG_SEED["financial_year"]).first():
-        db.add(
-            TDSConfig(
-                **TDS_CONFIG_SEED,
-                is_active=True,
-                is_verified=False,
-                notes=TDS_UNVERIFIED_NOTE,
-            )
-        )
-        db.commit()
+            db.commit()
 
 
 def seed_statutory_all(db: Session) -> None:

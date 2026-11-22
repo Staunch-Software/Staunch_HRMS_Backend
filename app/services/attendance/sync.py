@@ -15,11 +15,19 @@ from typing import Iterable, Optional
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models.attendance import AttendanceDaily, AttendancePunch, AttendanceSyncRun
+from app.models.attendance import (
+    DEVICE_MODE_IN_OUT,
+    DEVICE_MODE_SINGLE,
+    AttendanceDaily,
+    AttendancePunch,
+    AttendanceSyncRun,
+)
 from app.models.employee import Employee
 from app.models.org import Department
+from app.services.attendance.devices import device_modes, ensure_devices, mode_of
 from app.services.attendance.matrix_client import MatrixAPIError, MatrixClient, MatrixPunch, parse_record
 from app.services.employee_code import normalize_employee_code
+from app.services.notifications import attendance_sync_failed
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +37,8 @@ SOURCE_IN = "IN"
 SOURCE_OUT = "OUT"
 SOURCE_FALLBACK_FIRST = "FALLBACK_FIRST_PUNCH"
 SOURCE_FALLBACK_LAST = "FALLBACK_LAST_PUNCH"
+SOURCE_SINGLE_FIRST = "SINGLE_FIRST_PUNCH"
+SOURCE_SINGLE_LAST = "SINGLE_LAST_PUNCH"
 
 MAX_SYNC_DAYS = 31
 
@@ -36,10 +46,15 @@ MAX_SYNC_DAYS = 31
 _sync_lock = threading.Lock()
 
 
-def compute_daily(punches: Iterable[tuple[datetime, str]]) -> dict:
-    """Apply the first-IN / last-OUT rules to one employee-day's punches,
-    given as (event_datetime, entry_exit_type) pairs."""
-    ordered = sorted(punches, key=lambda p: p[0])
+def compute_daily(punches: Iterable[tuple], modes: Optional[dict[str, str]] = None) -> dict:
+    """Entry / exit for one employee-day from punches given as
+    (event_datetime, entry_exit_type[, device_name]). Per device: IN_OUT ->
+    first IN / last OUT; SINGLE -> first punch / last punch (exit only with
+    2+ punches on that device). Entry is the earliest candidate, exit the
+    latest; with no exit candidate a 2+ punch day falls back to its last
+    punch, with no entry candidate to its first punch. A single punch is
+    entry only. modes: device_name -> mode (unknown names use the default)."""
+    ordered = sorted(((p[0], p[1], p[2] if len(p) > 2 else None) for p in punches), key=lambda p: p[0])
     result = {
         "punch_in": None,
         "punch_in_source": None,
@@ -47,23 +62,36 @@ def compute_daily(punches: Iterable[tuple[datetime, str]]) -> dict:
         "punch_out_source": None,
         "worked_minutes": None,
         "punch_count": len(ordered),
+        "entry_device": None,
+        "exit_device": None,
     }
     if not ordered:
         return result
 
-    ins = [ts for ts, kind in ordered if kind == IN]
-    outs = [ts for ts, kind in ordered if kind == OUT]
-
-    if ins:
-        result["punch_in"], result["punch_in_source"] = ins[0], SOURCE_IN
-    else:
-        result["punch_in"], result["punch_in_source"] = ordered[0][0], SOURCE_FALLBACK_FIRST
-
-    if len(ordered) > 1:
+    by_device: dict = defaultdict(list)
+    for ts, kind, device in ordered:
+        by_device[device].append((ts, kind))
+    entries, exits = [], []
+    for device, items in by_device.items():
+        mode = DEVICE_MODE_IN_OUT if device is None else mode_of(modes or {}, device)
+        if mode == DEVICE_MODE_SINGLE:
+            entries.append((items[0][0], SOURCE_SINGLE_FIRST, device))
+            if len(items) > 1:
+                exits.append((items[-1][0], SOURCE_SINGLE_LAST, device))
+            continue
+        ins = [ts for ts, kind in items if kind == IN]
+        outs = [ts for ts, kind in items if kind == OUT]
+        if ins:
+            entries.append((ins[0], SOURCE_IN, device))
         if outs:
-            result["punch_out"], result["punch_out_source"] = outs[-1], SOURCE_OUT
-        else:
-            result["punch_out"], result["punch_out_source"] = ordered[-1][0], SOURCE_FALLBACK_LAST
+            exits.append((outs[-1], SOURCE_OUT, device))
+
+    first, last = ordered[0], ordered[-1]
+    entry = min(entries, key=lambda c: c[0]) if entries else (first[0], SOURCE_FALLBACK_FIRST, first[2])
+    result["punch_in"], result["punch_in_source"], result["entry_device"] = entry
+    if len(ordered) > 1:
+        exit_ = max(exits, key=lambda c: c[0]) if exits else (last[0], SOURCE_FALLBACK_LAST, last[2])
+        result["punch_out"], result["punch_out_source"], result["exit_device"] = exit_
 
     if result["punch_in"] and result["punch_out"] and result["punch_out"] > result["punch_in"]:
         result["worked_minutes"] = int((result["punch_out"] - result["punch_in"]).total_seconds() // 60)
@@ -146,6 +174,7 @@ def _store_punches(db: Session, punches: list[MatrixPunch], id_by_code: dict[str
                 device_name=p.device_name,
                 received_at=p.received_at,
                 employee_id=id_by_code.get(p.employee_code),
+                source="MATRIX",
             )
         )
         new += 1
@@ -155,8 +184,10 @@ def _store_punches(db: Session, punches: list[MatrixPunch], id_by_code: dict[str
 
 def recompute_daily(db: Session, keys: Iterable[tuple[str, date]], id_by_code: dict[str, int]) -> int:
     """Rebuild AttendanceDaily for each (employee_code, work_date) from all
-    stored punches. Does not commit."""
+    stored punches, using the current device modes. Does not commit."""
     count = 0
+    modes = device_modes(db)
+    seen_devices: set[str] = set()
     for code, work_date in sorted(set(keys)):
         rows = db.scalars(
             select(AttendancePunch)
@@ -172,7 +203,8 @@ def recompute_daily(db: Session, keys: Iterable[tuple[str, date]], id_by_code: d
             if daily is not None:
                 db.delete(daily)
             continue
-        values = compute_daily((r.event_datetime, r.entry_exit_type) for r in rows)
+        seen_devices.update(r.device_name for r in rows)
+        values = compute_daily(((r.event_datetime, r.entry_exit_type, r.device_name) for r in rows), modes)
         username = next((r.username for r in reversed(rows) if r.username), None)
         if daily is None:
             daily = AttendanceDaily(employee_code=code, work_date=work_date)
@@ -182,6 +214,7 @@ def recompute_daily(db: Session, keys: Iterable[tuple[str, date]], id_by_code: d
         for field, value in values.items():
             setattr(daily, field, value)
         count += 1
+    ensure_devices(db, seen_devices)
     db.flush()
     return count
 
@@ -246,6 +279,7 @@ def sync_attendance(
             run.status = "failed"
             run.error_message = str(exc)[:2000] if isinstance(exc, MatrixAPIError) else f"{exc.__class__.__name__}: {exc}"[:2000]
             run.finished_at = datetime.now(timezone.utc)
+            attendance_sync_failed(db, run)
             db.commit()
             logger.warning("Attendance sync %s failed: %s", run_id, run.error_message)
         db.refresh(run)

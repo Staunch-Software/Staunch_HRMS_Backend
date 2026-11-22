@@ -1,6 +1,7 @@
 from sqlalchemy import Boolean, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.crypto import EncryptedString
 from app.models.base import Base, TimestampMixin
 
 
@@ -21,6 +22,6 @@ class CompanyBankConfig(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Short internal code used in generated filenames, e.g. "STAUNCH".
     company_code: Mapped[str] = mapped_column(String(30), nullable=False)
-    debit_account_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    debit_account_number: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     debit_account_bank_name: Mapped[str] = mapped_column(String(150), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

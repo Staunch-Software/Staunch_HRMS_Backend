@@ -459,13 +459,16 @@ def test_employee_api_round_trips_master_fields(client):
         "stipend_amount": 15000, "address_line1": "1 Test Street", "city": "Chennai", "blood_group": "O+",
     }
     created = client.post("/api/v1/employees", json=payload).json()
-    for key in ("date_of_birth", "pan_number", "employment_type", "pf_applicable", "address_line1", "city"):
+    for key in ("date_of_birth", "employment_type", "pf_applicable", "address_line1", "city"):
         assert created[key] == payload[key]
+    assert created["pan_number"] == "XXXXXX234F" and created["aadhaar_number"] == "XXXX XXXX 3333"
     # A PUT that omits the new fields must not wipe them.
     updated = client.put(f"/api/v1/employees/{created['id']}", json={"employee_code": "E2001", "first_name": "Renamed"})
     assert updated.status_code == 200
     body = updated.json()
-    assert body["first_name"] == "Renamed" and body["pan_number"] == "ABCDE1234F" and body["city"] == "Chennai"
+    assert body["first_name"] == "Renamed" and body["pan_number"] == "XXXXXX234F" and body["city"] == "Chennai"
+    sensitive = client.get(f"/api/v1/employees/{created['id']}/sensitive").json()
+    assert sensitive["pan_number"] == "ABCDE1234F" and sensitive["aadhaar_number"] == "111122223333"
 
 
 def test_service_records_round_trip_through_batch():

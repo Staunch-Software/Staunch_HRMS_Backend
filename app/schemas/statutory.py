@@ -1,7 +1,7 @@
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PFConfigBase(BaseModel):
@@ -102,12 +102,19 @@ class TDSSlabRead(TDSSlabBase):
     model_config = {"from_attributes": True}
 
 
+class SurchargeBand(BaseModel):
+    above: float
+    rate: float
+
+
 class TDSConfigBase(BaseModel):
     financial_year: str
+    regime: Literal["New", "Old"] = "New"
     standard_deduction: float
     cess_rate: float = 0.04
     rebate_87a_income_limit: float
     rebate_87a_max_amount: float
+    surcharge_bands: list[SurchargeBand] = []
     is_active: bool = True
     is_verified: bool = False
     notes: Optional[str] = None
@@ -128,6 +135,8 @@ class EmployeeTaxDeclarationBase(BaseModel):
     regime_choice: str = "New"
     declared_investments: dict[str, Any] = {}
     previous_employer_income: Optional[float] = None
+    previous_employer_tds: Optional[float] = None
+    old_regime_deductions: Optional[float] = None
 
 
 class EmployeeTaxDeclarationCreate(EmployeeTaxDeclarationBase):
@@ -139,3 +148,53 @@ class EmployeeTaxDeclarationRead(EmployeeTaxDeclarationBase):
     employee_id: int
 
     model_config = {"from_attributes": True}
+
+
+class TaxDeclarationUpdate(BaseModel):
+    regime_choice: Literal["New", "Old"] = "New"
+    old_regime_deductions: Optional[float] = Field(default=None, ge=0)
+    previous_employer_income: Optional[float] = Field(default=None, ge=0)
+    previous_employer_tds: Optional[float] = Field(default=None, ge=0)
+
+
+class TaxDeclarationForYear(TaxDeclarationUpdate):
+    """One financial year's declaration; id is null when none is saved (New regime applies)."""
+
+    id: Optional[int] = None
+    employee_id: int
+    financial_year: str
+
+
+class AnnualTaxBreakdown(BaseModel):
+    taxable_income: float
+    tax: float
+    rebate: float
+    marginal_relief: float
+    surcharge: float
+    surcharge_marginal_relief: float
+    cess: float
+    total: float
+
+
+class TDSPreview(BaseModel):
+    employee_id: int
+    period_end: date
+    financial_year: str
+    regime: str
+    has_declaration: bool
+    gross_source: str  # query | latest_run | none
+    current_month_gross: float
+    months_remaining: int
+    ytd_gross: float
+    ytd_tds: float
+    previous_employer_income: float
+    previous_employer_tds: float
+    annual_projection: float
+    standard_deduction: float
+    old_regime_deductions: float
+    taxable_income: float
+    annual_tax: float
+    remaining_tax: float
+    monthly_tds: float
+    tax_breakdown: Optional[AnnualTaxBreakdown] = None
+    warning: Optional[str] = None

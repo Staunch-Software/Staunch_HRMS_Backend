@@ -14,8 +14,14 @@ class Department(Base, TimestampMixin):
     code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="Active", nullable=False)
+    # Approves leave, permission and WFH requests of the department's employees.
+    manager_employee_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL", use_alter=True, name="fk_departments_manager_employee_id"),
+        nullable=True, index=True,
+    )
 
     designations: Mapped[list["Designation"]] = relationship(back_populates="department")
+    manager = relationship("Employee", foreign_keys=[manager_employee_id])
 
 
 class Designation(Base, TimestampMixin):

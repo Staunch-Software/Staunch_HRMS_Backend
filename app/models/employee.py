@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.crypto import EncryptedString
 from app.models.base import Base, TimestampMixin
 
 
@@ -27,6 +28,10 @@ class Employee(Base, TimestampMixin):
 
     date_of_joining: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     date_of_leaving: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    notice_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    reporting_manager_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     basic_salary: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
 
@@ -50,10 +55,9 @@ class Employee(Base, TimestampMixin):
     state: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     country: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    # TODO: encrypt at rest before production (same as account_number).
-    aadhaar_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    # TODO: encrypt at rest before production (same as account_number).
-    pan_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Encrypted at rest (app/core/crypto.py); APIs return these masked.
+    aadhaar_number: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
+    pan_number: Mapped[Optional[str]] = mapped_column(EncryptedString, nullable=True)
 
     # --- Employment / statutory ---
     employment_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
@@ -81,12 +85,22 @@ class Employee(Base, TimestampMixin):
     contract_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     stipend_amount: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
 
-    department = relationship("Department")
+    department = relationship("Department", foreign_keys=[department_id])
     designation = relationship("Designation")
     work_location = relationship("WorkLocation")
+    reporting_manager = relationship(
+        "Employee", remote_side=[id], foreign_keys=[reporting_manager_id]
+    )
     bank_accounts: Mapped[list["EmployeeBankAccount"]] = relationship(
         back_populates="employee", cascade="all, delete-orphan"
     )
+
+    @property
+    def reporting_manager_name(self) -> Optional[str]:
+        manager = self.reporting_manager
+        if manager is None:
+            return None
+        return " ".join(p for p in (manager.first_name, manager.middle_name, manager.last_name) if p) or None
 
 
 class EmployeeBankAccount(Base, TimestampMixin):
@@ -97,9 +111,8 @@ class EmployeeBankAccount(Base, TimestampMixin):
 
     bank_name: Mapped[str] = mapped_column(String(150), nullable=False)
     account_holder_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    # TODO: encrypt at rest before production, e.g. via pgcrypto or app-level
-    # Fernet — deferred to keep Phase 1 scope contained. Plain string for now.
-    account_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Encrypted at rest (app/core/crypto.py); APIs return it masked.
+    account_number: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     # Validated in Pydantic schemas against ^[A-Z]{4}0[A-Z0-9]{6}$ (matches the
     # existing frontend regex in PaymentMethod.js) rather than a DB CHECK
     # constraint, so it works identically on SQLite (dev) and Postgres (prod).

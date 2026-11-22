@@ -8,9 +8,9 @@ backend/generated_files/ rather than a LargeBinary DB column. Reasoning:
 this project already runs against SQLite in dev and Postgres in
 prod/live-data (see app/models/json_type.py's dialect-switching for the
 same concern) — storing large binary blobs in SQLite rows is workable but
-awkward for backups/inspection, and keeping generated files as plain
-.xlsx files on disk means they can be opened directly for a spot-check
-without going through the API. `DisbursementBatch.file_path` records where
+awkward for backups/inspection. Files hold full account numbers, so they
+are Fernet-encrypted on disk (app/core/crypto.py) and only readable through
+the API or `read_generated_file`. `DisbursementBatch.file_path` records where
 the file lives and `checksum` is the guarantee that a re-download hasn't
 silently changed: the file is written once and never rewritten.
 """
@@ -24,6 +24,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt_bytes, encrypt_bytes, mask_tail
 from app.models.company_bank_config import CompanyBankConfig
 from app.models.disbursement import DisbursementBatch, DisbursementBatchItem
 from app.models.employee import EmployeeBankAccount
@@ -36,6 +37,11 @@ IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 # backend/generated_files — this file lives at
 # backend/app/services/bank_file/generate.py, so parents[3] is backend/.
 GENERATED_FILES_DIR = Path(__file__).resolve().parents[3] / "generated_files"
+
+
+def read_generated_file(path: Path) -> bytes:
+    """The original file bytes; legacy unencrypted files are returned as-is."""
+    return decrypt_bytes(path.read_bytes())
 
 
 @dataclass
@@ -158,7 +164,9 @@ def generate_bank_file(
     # family bank account can be a legitimate arrangement.
     for account_number, names in accounts_seen.items():
         if len(names) > 1:
-            warnings.append(f"Account number {account_number} is shared by: {', '.join(names)} (not blocking).")
+            warnings.append(
+                f"Account number {mask_tail(account_number)} is shared by: {', '.join(names)} (not blocking)."
+            )
 
     if blocking_issues:
         # Refuse generation entirely — no partial file, nothing persisted.
@@ -198,7 +206,7 @@ def generate_bank_file(
 
     GENERATED_FILES_DIR.mkdir(parents=True, exist_ok=True)
     absolute_path = GENERATED_FILES_DIR / file_name
-    absolute_path.write_bytes(file_bytes)
+    absolute_path.write_bytes(encrypt_bytes(file_bytes))
     # Stored relative to backend/ so it stays portable across machines/envs.
     relative_path = str(absolute_path.relative_to(GENERATED_FILES_DIR.parent))
 

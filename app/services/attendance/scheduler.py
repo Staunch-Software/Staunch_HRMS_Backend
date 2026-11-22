@@ -2,20 +2,25 @@
 
 Started from the FastAPI lifespan only when ATTENDANCE_SYNC_ENABLED is true.
 Runs at ATTENDANCE_SYNC_TIME (HH:MM, server local time) and syncs
-today - ATTENDANCE_SYNC_LOOKBACK_DAYS .. today.
+today - ATTENDANCE_SYNC_LOOKBACK_DAYS .. today. A one-shot catch-up runs
+STARTUP_DELAY_SECONDS after start when the sync has fallen behind (nights the
+server was down), see app.services.attendance.coverage.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 JOB_ID = "attendance_daily_sync"
+STARTUP_JOB_ID = "attendance_startup_catchup"
+STARTUP_DELAY_SECONDS = 30
 
 _scheduler: Optional[BackgroundScheduler] = None
 
@@ -50,6 +55,29 @@ def run_scheduled_sync() -> None:
         db.close()
 
 
+def run_startup_catchup() -> None:
+    from app.core.db import SessionLocal
+    from app.services.attendance.coverage import catch_up, coverage_status
+
+    db = SessionLocal()
+    try:
+        status = coverage_status(db)
+        if not status.stale:
+            logger.info("Attendance sync is current (covered through %s); no catch-up", status.covered_through)
+            return
+        runs = catch_up(db, triggered_by="startup")
+        for run in runs:
+            logger.info(
+                "Startup attendance catch-up %s %s..%s: %s (fetched=%s new=%s days=%s)",
+                run.id, run.date_from, run.date_to, run.status, run.records_fetched, run.records_new,
+                run.days_recomputed,
+            )
+    except Exception:
+        logger.exception("Startup attendance catch-up crashed")
+    finally:
+        db.close()
+
+
 def start_scheduler() -> Optional[BackgroundScheduler]:
     global _scheduler
     if not settings.ATTENDANCE_SYNC_ENABLED or _scheduler is not None:
@@ -63,6 +91,14 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_startup_catchup,
+        DateTrigger(run_date=datetime.now() + timedelta(seconds=STARTUP_DELAY_SECONDS)),
+        id=STARTUP_JOB_ID,
+        replace_existing=True,
+        max_instances=1,
         misfire_grace_time=3600,
     )
     scheduler.start()

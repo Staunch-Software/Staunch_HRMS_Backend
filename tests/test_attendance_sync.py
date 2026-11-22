@@ -178,8 +178,14 @@ def test_sync_groups_by_event_date_and_applies_rules(db_session):
     late = _daily(db_session, "STINT0007", D28)
     assert late is not None, "late-synced punch must land on its real date"
     assert _daily(db_session, "STINT0007", D29) is None
-    assert late.punch_out_source == "FALLBACK_LAST_PUNCH"
+    # New Office has a single reader: first punch in, last punch out.
+    assert late.punch_in_source == "SINGLE_FIRST_PUNCH" and late.punch_out_source == "SINGLE_LAST_PUNCH"
     assert late.punch_out == datetime(2026, 10, 28, 18, 33, 44)
+    assert (late.entry_device, late.exit_device) == ("New Office", "New Office")
+
+    mixed = _daily(db_session, "STEMP0192", D30)  # Main Door IN + one New Office punch
+    assert mixed.punch_in == datetime(2026, 10, 30, 9, 15) and mixed.entry_device == "Main Door"
+    assert mixed.punch_out_source == "FALLBACK_LAST_PUNCH" and mixed.exit_device == "New Office"
 
     normal = _daily(db_session, "STEMP0192", D29)
     assert normal.punch_in_source == "IN" and normal.punch_out_source == "OUT"

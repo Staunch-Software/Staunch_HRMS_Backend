@@ -8,6 +8,8 @@ class DepartmentBase(BaseModel):
     code: str
     description: Optional[str] = None
     status: str = "Active"
+    # Approves the department's leave, permission and WFH requests.
+    manager_employee_id: Optional[int] = None
 
     @field_validator("code")
     @classmethod
@@ -25,6 +27,12 @@ class DepartmentUpdate(DepartmentBase):
 
 class DepartmentRead(DepartmentBase):
     id: int
+    manager_name: Optional[str] = None
+    manager_code: Optional[str] = None
+    manager_status: Optional[str] = None
+    # False: the manager has no active login, so approvals skip them.
+    manager_has_login: Optional[bool] = None
+    warning: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

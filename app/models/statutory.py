@@ -1,12 +1,12 @@
 """Statutory configuration tables — versioned by effective_from/effective_to
-so nothing about PF/ESI/PT/TDS is ever hardcoded in engine code. PT and TDS
-seed data is explicitly flagged `is_verified=False`; see db/seed/pt_tds_seed.py
-and the report handed back after this phase for the verification disclaimer.
+so nothing about PF/ESI/PT/TDS is ever hardcoded in engine code. PT seed data
+is explicitly flagged `is_verified=False`; the FY 2026-27 TDS rows are verified
+(see db/seed/statutory_seed.py).
 """
 from datetime import date
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -85,14 +85,21 @@ class TDSSlab(Base, TimestampMixin):
 
 
 class TDSConfig(Base, TimestampMixin):
+    """One active row per (financial_year, regime)."""
+
     __tablename__ = "tds_configs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     financial_year: Mapped[str] = mapped_column(String(10), nullable=False)
+    regime: Mapped[str] = mapped_column(String(10), nullable=False, default="New", server_default="New")  # Old|New
     standard_deduction: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     cess_rate: Mapped[float] = mapped_column(Numeric(6, 4), default=0.04, nullable=False)
     rebate_87a_income_limit: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     rebate_87a_max_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    # [{"above": 5000000, "rate": 0.10}, ...] — rate applies when taxable income exceeds `above`.
+    surcharge_bands: Mapped[list[Any]] = mapped_column(
+        JSONType, nullable=False, default=list, server_default=text("'[]'")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -109,3 +116,6 @@ class EmployeeTaxDeclaration(Base, TimestampMixin):
     # e.g. {"section_80c": 50000, "section_80d": 15000, "hra_exemption": 120000}
     declared_investments: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     previous_employer_income: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    previous_employer_tds: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)
+    # Old regime only: total of HR-verified deductions (80C, 80D, HRA exemption, ...), already capped.
+    old_regime_deductions: Mapped[Optional[float]] = mapped_column(Numeric(12, 2), nullable=True)

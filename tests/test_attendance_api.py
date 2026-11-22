@@ -15,8 +15,9 @@ D29 = date(2026, 10, 29)
 def fake_matrix(monkeypatch):
     fake = FakeMatrix({
         D29: [
-            rec("STINT0007", "28/10/2026 18:33:44", "0", "New Office", received="10/29/2026 09:10:29"),
-            rec("STINT0007", "28/10/2026 09:00:00", "0", "New Office", received="10/29/2026 09:10:29"),
+            # Two IN punches at an In/Out device: the exit falls back to the last punch.
+            rec("STINT0007", "28/10/2026 18:33:44", "0", "Main Door", received="10/29/2026 09:10:29"),
+            rec("STINT0007", "28/10/2026 09:00:00", "0", "Main Door", received="10/29/2026 09:10:29"),
             rec("STEMP0192", "29/10/2026 09:00:00", "0", username="Kaviarasan B"),
             rec("STEMP0192", "29/10/2026 18:00:00", "1", username="Kaviarasan B"),
             rec("STEMP0050", "29/10/2026 10:00:00", "0", "New Office"),
@@ -71,9 +72,11 @@ def test_daily_and_punches_endpoints(client, db_session, fake_matrix):
 
     single = by_key[("STEMP0050", "2026-10-29")]
     assert single["is_single_punch"] is True and single["punch_out"] is None
+    assert single["entry_device"] == "New Office" and single["exit_device"] is None
 
     full = by_key[("STEMP0192", "2026-10-29")]
     assert full["worked_minutes"] == 540 and full["username"] == "Kaviarasan B"
+    assert full["entry_device"] == "Main Door" and full["exit_device"] == "Main Door"
 
     only = client.get("/api/v1/attendance/daily?date_from=2026-10-29&employee_code=ST-EMP-192").json()
     assert [r["employee_code"] for r in only] == ["STEMP0192"]

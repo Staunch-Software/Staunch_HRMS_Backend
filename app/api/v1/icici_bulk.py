@@ -33,7 +33,7 @@ from app.schemas.icici_bulk import (
     ICICISubmitRequest,
     ICICISubmitResponse,
 )
-from app.services.bank_file.generate import GENERATED_FILES_DIR
+from app.services.bank_file.generate import GENERATED_FILES_DIR, read_generated_file
 from app.services.bank_file.icici_bulk_salary_txt_v1 import encode_base64
 from app.services.icici_api.client import ICICIClient, missing_config_fields
 from app.services.icici_api.exceptions import (
@@ -135,7 +135,7 @@ def submit_disbursement_batch_to_icici(
         file_path: Path = GENERATED_FILES_DIR.parent / batch.file_path
         if not file_path.exists():
             raise HTTPException(status_code=410, detail="The generated file is no longer available on disk.")
-        file_content_base64 = encode_base64(file_path.read_bytes())
+        file_content_base64 = encode_base64(read_generated_file(file_path))
 
         try:
             result = client.bulk_payment(

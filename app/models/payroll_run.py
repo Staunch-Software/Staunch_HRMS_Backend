@@ -16,6 +16,8 @@ class PayrollRun(Base, TimestampMixin):
     # Set = scope is the pay group's employees and every line item is computed
     # by the group's strategy. Null = the component-formula engine (unchanged).
     pay_group_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pay_groups.id"), nullable=True, index=True)
+    # The pay group's definition version used by the last calculation (FORMULA groups).
+    pay_group_definition_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     pay_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -33,6 +35,11 @@ class PayrollRun(Base, TimestampMixin):
     calculated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    # Maker-checker (Settings > Approval Workflow): who calculated the run and
+    # who submitted it for approval; the approver must be someone else.
+    calculated_by: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    submitted_by: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

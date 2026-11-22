@@ -11,12 +11,15 @@ from datetime import date
 from io import BytesIO
 
 from openpyxl import load_workbook
+from sqlalchemy import text
 
+from app.core.crypto import decrypt_bytes
 from app.models.company_bank_config import CompanyBankConfig
 from app.models.disbursement import DisbursementBatch, DisbursementBatchItem
 from app.models.employee import Employee, EmployeeBankAccount
 from app.models.pay_schedule import PaySchedule
 from app.models.payroll_run import PayrollRun, PayrollRunLineItem
+from app.services.bank_file.generate import GENERATED_FILES_DIR, generate_bank_file
 
 PERIOD_START = date(2026, 9, 1)
 PERIOD_END = date(2026, 9, 30)
@@ -306,5 +309,51 @@ def test_disbursement_data_endpoint_returns_rows_for_approved_run(client, db_ses
     rows = resp.json()
     assert len(rows) == 1
     assert rows[0]["employee_code"] == "E-BF9"
-    assert rows[0]["account_number"] == "7777777777"
+    assert rows[0]["account_number"] == "XXXXXX7777"
     assert rows[0]["net_pay"] == 55000
+
+
+def test_stored_file_is_encrypted_and_download_returns_original(client, db_session):
+    _seed_company_bank_config(db_session)
+    schedule = _make_schedule(db_session)
+    run = _make_run(db_session, schedule, status="Approved")
+    emp = _make_employee(db_session, "E-BF10", bank={"account_number": "8181818181", "ifsc_code": "HDFC0001234"})
+    _make_line_item(db_session, run, emp, 41000)
+
+    batch_data = client.post(f"/api/v1/payroll-runs/{run.id}/disbursement-batches", json={}).json()
+    db_batch = db_session.get(DisbursementBatch, batch_data["id"])
+    stored_path = GENERATED_FILES_DIR.parent / db_batch.file_path
+    stored = stored_path.read_bytes()
+    assert stored.startswith(b"enc:v1:")
+
+    download = client.get(f"/api/v1{batch_data['download_url']}")
+    assert download.status_code == 200
+    assert download.content == decrypt_bytes(stored)
+    assert hashlib.sha256(download.content).hexdigest() == batch_data["checksum"]
+    assert batch_data["file_name"] in download.headers["content-disposition"]
+    ws = load_workbook(BytesIO(download.content))["Salary Disbursement"]
+    assert [row[1] for row in ws.iter_rows(min_row=2, values_only=True)] == ["8181818181"]
+
+    raw_item = db_session.execute(
+        text("SELECT account_number FROM disbursement_batch_items WHERE disbursement_batch_id = :id"),
+        {"id": db_batch.id},
+    ).scalar()
+    assert raw_item.startswith("enc:v1:")
+
+    # A legacy plaintext file on disk is still served as-is.
+    stored_path.write_bytes(download.content)
+    assert client.get(f"/api/v1{batch_data['download_url']}").content == download.content
+
+
+def test_duplicate_account_warning_is_masked(client, db_session):
+    _seed_company_bank_config(db_session)
+    schedule = _make_schedule(db_session)
+    run = _make_run(db_session, schedule, status="Approved")
+    for code in ("E-BF11", "E-BF12"):
+        emp = _make_employee(db_session, code, bank={"account_number": "9292929292", "ifsc_code": "HDFC0001234"})
+        _make_line_item(db_session, run, emp, 30000)
+
+    result = generate_bank_file(db_session, run)
+    assert result.success
+    assert any("XXXXXX9292" in w for w in result.warnings)
+    assert not any("9292929292" in w for w in result.warnings)

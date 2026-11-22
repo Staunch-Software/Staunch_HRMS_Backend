@@ -23,6 +23,7 @@ from app.services.org_normalization import (
     smart_case,
     unique_department_code,
 )
+from app.services.reporting import chain_reaches
 
 SCALAR_FIELDS = [
     "first_name", "last_name", "gender", "date_of_birth", "mobile_number", "personal_email",
@@ -35,6 +36,7 @@ SCALAR_FIELDS = [
 ]
 MERGE_FIELDS = SCALAR_FIELDS + [
     "name", "status", "department", "designation", "work_location", "bank_name", "account_number", "ifsc_code",
+    "reporting_manager", "reporting_manager_code",
 ]
 
 
@@ -297,10 +299,110 @@ def build_plan(db: Session, parsed_records: list[SourceRecord], resolver: OrgRes
             location.name if location else None,
             bank, bank_change,
         ))
+    _plan_reporting_managers(plan, existing_by_code)
     return plan
 
 
-CHANGE_LABELS = {"department_id": "department", "designation_id": "designation", "work_location_id": "work_location"}
+# --- Reporting managers (second pass, after every row is planned) ---------------
+
+
+def _name_key(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (value or "")).strip().lower()
+
+
+def _resolve_manager_ref(
+    ref_code: Optional[str], ref_name: Optional[str], known_codes: set[str], codes_by_name: dict[str, set[str]]
+) -> tuple[Optional[str], Optional[str]]:
+    """(manager code, None) or (None, warning). Employee code first, then an
+    exact (case/whitespace-insensitive) full-name match."""
+    for raw in (ref_code, ref_name):
+        code = normalize_employee_code(raw)
+        if code and code in known_codes:
+            return code, None
+    name = ref_name
+    if ref_name:
+        bracketed = re.search(r"\(([^)]*)\)", ref_name)
+        if bracketed:
+            code = normalize_employee_code(bracketed.group(1))
+            if code in known_codes:
+                return code, None
+            name = ref_name[:bracketed.start()]
+    shown = ref_code or ref_name
+    matches = codes_by_name.get(_name_key(name), set()) if name else set()
+    if len(matches) == 1:
+        return next(iter(matches)), None
+    if len(matches) > 1:
+        return None, f"Reporting Manager '{shown}' matches {len(matches)} employees by name - not set."
+    return None, f"Reporting Manager '{shown}' not found by employee ID or name - not set."
+
+
+def _plan_reporting_managers(plan: list["PlanItem"], existing_by_code: dict[str, Employee]) -> None:
+    """Resolves each row's reporting-manager reference against the database
+    plus every employee in the file. A changed manager is recorded as
+    changes["reporting_manager"] = manager code and applied after all rows
+    are written. Unresolvable, self or circular references are warnings."""
+    planned = [item for item in plan if item.action != "skipped"]
+    names_by_code: dict[str, set[str]] = {}
+    for code, employee in existing_by_code.items():
+        names_by_code[code] = {
+            _name_key(" ".join(p for p in (employee.first_name, employee.middle_name, employee.last_name) if p)),
+            _name_key(" ".join(p for p in (employee.first_name, employee.last_name) if p)),
+        }
+    for item in planned:
+        fields = item.merged.fields
+        names_by_code[item.merged.code] = {
+            _name_key(fields.get("name")),
+            _name_key(" ".join(p for p in (fields.get("first_name"), fields.get("last_name")) if p)),
+        } if fields.get("name") else names_by_code.get(item.merged.code, set())
+    codes_by_name: dict[str, set[str]] = {}
+    for code, names in names_by_code.items():
+        for name in names - {""}:
+            codes_by_name.setdefault(name, set()).add(code)
+    known_codes = set(names_by_code)
+
+    code_by_id = {employee.id: code for code, employee in existing_by_code.items()}
+    manager_of = {
+        code: code_by_id.get(employee.reporting_manager_id)
+        for code, employee in existing_by_code.items()
+        if employee.reporting_manager_id
+    }
+    for item in planned:
+        fields = item.merged.fields
+        ref_code, ref_name = fields.get("reporting_manager_code"), fields.get("reporting_manager")
+        if not ref_code and not ref_name:
+            continue
+        code = item.merged.code
+        manager_code, warning = _resolve_manager_ref(ref_code, ref_name, known_codes, codes_by_name)
+        if manager_code == code:
+            warning = "Reporting Manager is the employee themself - not set."
+        elif manager_code and chain_reaches(manager_of, manager_code, code):
+            warning = f"Reporting Manager '{manager_code}' already reports to this employee (circular) - not set."
+        if warning:
+            item.merged.issues.append(_issue("warning", warning))
+            continue
+        current = code_by_id.get(item.employee.reporting_manager_id) if item.employee is not None else None
+        manager_of[code] = manager_code
+        if current != manager_code:
+            item.changes["reporting_manager"] = manager_code
+            if item.action == "unchanged":
+                item.action = "update"
+
+
+def _apply_reporting_managers(db: Session, plan: list["PlanItem"]) -> None:
+    db.flush()
+    by_code: dict[str, Employee] = {}
+    for employee in db.query(Employee).order_by(Employee.id).all():
+        by_code.setdefault(normalize_employee_code(employee.employee_code), employee)
+    for item in plan:
+        manager_code = item.changes.get("reporting_manager")
+        if item.action == "skipped" or not manager_code:
+            continue
+        employee, manager = by_code.get(item.merged.code), by_code.get(manager_code)
+        if employee is not None and manager is not None:
+            employee.reporting_manager_id = manager.id
+
+
+CHANGE_LABELS ={"department_id": "department", "designation_id": "designation", "work_location_id": "work_location"}
 
 
 def preview(db: Session, parsed: ParsedWorkbook) -> dict:
@@ -373,6 +475,8 @@ def commit(db: Session, parsed_records: list[SourceRecord]) -> dict:
             employee = item.employee
             values = {}
             for key, value in item.changes.items():
+                if key == "reporting_manager":
+                    continue
                 values[key] = value.id if key in CHANGE_LABELS else value
             if employee is None:
                 employee = Employee(employee_code=item.merged.code, **values)
@@ -393,6 +497,7 @@ def commit(db: Session, parsed_records: list[SourceRecord]) -> dict:
                     for key, value in item.bank.items():
                         setattr(current, key, value)
                     banks_updated += 1
+        _apply_reporting_managers(db, plan)
         db.commit()
     except Exception:
         db.rollback()

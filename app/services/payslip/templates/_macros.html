@@ -1,0 +1,82 @@
+{% macro employee_rows(p, cols=2) -%}
+{%- for row in p.employee_fields|batch(cols) %}
+<tr>
+  {%- for label, value in row %}
+  <td class="lbl">{{ label }}</td><td class="val">{{ value or "-" }}</td>
+  {%- endfor %}
+  {%- for _ in range(cols - row|length) %}<td class="lbl"></td><td class="val"></td>{% endfor %}
+</tr>
+{%- endfor %}
+{%- endmacro %}
+
+{% macro pay_table(p, cls="pay") -%}
+{%- set ytd = p.show_ytd_column -%}
+<table class="{{ cls }}">
+  <tr class="head">
+    {%- set nw, aw = ("22%", "14%") if ytd else ("30%", "20%") %}
+    <th class="name" width="{{ nw }}">Earnings</th><th class="num" style="text-align: right;" width="{{ aw }}">Amount (Rs.)</th>{% if ytd %}<th class="num" style="text-align: right;" width="{{ aw }}">YTD</th>{% endif %}
+    <th class="name sep" width="{{ nw }}">Deductions</th><th class="num" style="text-align: right;" width="{{ aw }}">Amount (Rs.)</th>{% if ytd %}<th class="num" style="text-align: right;" width="{{ aw }}">YTD</th>{% endif %}
+  </tr>
+  {%- for earning, deduction in p.rows %}
+  <tr>
+    <td class="name">{{ earning.name if earning else "" }}</td>
+    <td class="num" align="right">{{ earning.amount_text if earning else "" }}</td>
+    {% if ytd %}<td class="num muted" align="right">{{ earning.ytd_text if earning else "" }}</td>{% endif %}
+    <td class="name sep">{{ deduction.name if deduction else "" }}</td>
+    <td class="num" align="right">{{ deduction.amount_text if deduction else "" }}</td>
+    {% if ytd %}<td class="num muted" align="right">{{ deduction.ytd_text if deduction else "" }}</td>{% endif %}
+  </tr>
+  {%- endfor %}
+  {%- if not p.rows %}
+  <tr><td class="name" colspan="{{ 6 if ytd else 4 }}">No pay lines.</td></tr>
+  {%- endif %}
+  <tr class="total">
+    <td class="name">Gross earnings</td><td class="num" align="right">{{ p.totals.gross }}</td>{% if ytd %}<td class="num muted" align="right">{{ p.ytd.gross if p.ytd else "" }}</td>{% endif %}
+    <td class="name sep">Total deductions</td><td class="num" align="right">{{ p.totals.deductions }}</td>{% if ytd %}<td class="num muted" align="right">{{ p.ytd.deductions if p.ytd else "" }}</td>{% endif %}
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro employer_table(p, cls="mini") -%}
+{%- if p.employer %}
+<table class="{{ cls }}">
+  <tr class="head"><th class="name" width="{{ "44%" if p.show_ytd_column else "60%" }}">Employer contributions</th><th class="num" style="text-align: right;" width="{{ "28%" if p.show_ytd_column else "40%" }}">Amount (Rs.)</th>{% if p.show_ytd_column %}<th class="num" style="text-align: right;" width="28%">YTD</th>{% endif %}</tr>
+  {%- for row in p.employer %}
+  <tr><td class="name">{{ row.name }}</td><td class="num" align="right">{{ row.amount_text }}</td>{% if p.show_ytd_column %}<td class="num muted" align="right">{{ row.ytd_text }}</td>{% endif %}</tr>
+  {%- endfor %}
+</table>
+{%- endif %}
+{%- endmacro %}
+
+{% macro attendance_table(p, cls="mini") -%}
+{%- set a = p.attendance -%}
+{%- if a %}
+<table class="{{ cls }}">
+  <tr class="head"><th class="name" width="70%">Attendance</th><th class="num" style="text-align: right;" width="30%">Days</th></tr>
+  <tr><td class="name">Days in month</td><td class="num" align="right">{{ a.days_in_month }}</td></tr>
+  {% if a.working_days is not none %}<tr><td class="name">Working days</td><td class="num" align="right">{{ a.working_days }}</td></tr>{% endif %}
+  {% if a.present_days %}<tr><td class="name">Days present</td><td class="num" align="right">{{ a.present_days }}</td></tr>{% endif %}
+  {% if a.paid_leave_days %}<tr><td class="name">Paid leave</td><td class="num" align="right">{{ a.paid_leave_days }}</td></tr>{% endif %}
+  <tr><td class="name">Paid days</td><td class="num" align="right">{{ a.paid_days or "-" }}</td></tr>
+  <tr><td class="name">LOP days</td><td class="num" align="right">{{ a.lop_days or "0" }}</td></tr>
+</table>
+{%- endif %}
+{%- endmacro %}
+
+{% macro leave_table(p, cls="mini") -%}
+{%- if p.leave %}
+<table class="{{ cls }}">
+  <tr class="head"><th class="name" width="40%">Leave</th><th class="num" style="text-align: right;" width="20%">Credited</th><th class="num" style="text-align: right;" width="20%">Used</th><th class="num" style="text-align: right;" width="20%">Balance</th></tr>
+  {%- for row in p.leave %}
+  <tr><td class="name">{{ row.name }}</td><td class="num" align="right">{{ row.credited }}</td><td class="num" align="right">{{ row.used }}</td><td class="num" align="right">{{ row.balance }}</td></tr>
+  {%- endfor %}
+</table>
+{%- endif %}
+{%- endmacro %}
+
+{% macro company_lines(p) -%}
+{%- for line in p.company.address %}<div class="addr">{{ line }}</div>{% endfor %}
+{%- if p.company.cin or p.company.gstin %}
+<div class="addr">{% if p.company.cin %}CIN: {{ p.company.cin }}{% endif %}{% if p.company.cin and p.company.gstin %} &nbsp;|&nbsp; {% endif %}{% if p.company.gstin %}GSTIN: {{ p.company.gstin }}{% endif %}</div>
+{%- endif %}
+{%- endmacro %}

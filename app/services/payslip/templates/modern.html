@@ -1,0 +1,73 @@
+{% import "_macros.html" as m %}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: a4 portrait; margin: 1.2cm 1.3cm 1.5cm 1.3cm; }
+  body { font-family: Helvetica; font-size: 9pt; color: #1f2937; }
+  .band { background-color: #1d4ed8; color: #ffffff; padding: 10px 12px; }
+  .band .cname { font-size: 15pt; font-weight: bold; color: #ffffff; }
+  .band .addr { font-size: 8pt; color: #dbeafe; }
+  .band .month { font-size: 10pt; color: #dbeafe; }
+  .band .label { font-size: 8pt; color: #bfdbfe; }
+  .band .net { font-size: 16pt; font-weight: bold; color: #ffffff; }
+  .logo-cell { background-color: #ffffff; padding: 6px; }
+  .section { margin-top: 12px; font-size: 8pt; font-weight: bold; color: #1d4ed8; letter-spacing: 1px; }
+  table.emp { width: 100%; margin-top: 4px; background-color: #eff6ff; }
+  table.emp td { padding: 4px 8px; }
+  table.emp td.lbl { width: 18%; color: #64748b; font-size: 8pt; }
+  table.emp td.val { width: 32%; font-weight: bold; color: #0f172a; }
+  table.pay { width: 100%; margin-top: 4px; }
+  table.pay th { color: #1d4ed8; font-size: 8pt; text-align: left; padding: 5px 6px; border-bottom: 1.5px solid #1d4ed8; }
+  table.pay th.num { text-align: right; }
+  table.pay td { padding: 4px 6px; border-bottom: 0.5px solid #e2e8f0; }
+  table.pay .num { text-align: right; }
+  table.pay .sep { padding-left: 14px; }
+  table.pay tr.total td { font-weight: bold; background-color: #eff6ff; border-bottom: none; }
+  .muted { color: #64748b; }
+  .words { margin-top: 8px; padding: 6px 8px; background-color: #eff6ff; border-left: 3px solid #1d4ed8; font-size: 8.5pt; }
+  table.mini { width: 100%; }
+  table.mini th { color: #1d4ed8; font-size: 8pt; text-align: left; padding: 4px 6px; border-bottom: 1px solid #1d4ed8; }
+  table.mini th.num { text-align: right; }
+  table.mini td { padding: 3px 6px; border-bottom: 0.5px solid #e2e8f0; }
+  table.mini .num { text-align: right; }
+  .footer { margin-top: 16px; font-size: 7.5pt; color: #64748b; border-top: 0.5px solid #e2e8f0; padding-top: 6px; }
+</style>
+</head>
+<body>
+<table class="band">
+  <tr>
+    <td style="width: 16%;" class="logo-cell"><img src="{{ p.company.logo }}" style="height: 44px;"></td>
+    <td style="width: 52%; padding-left: 12px;">
+      <div class="cname">{{ p.company.name }}</div>
+      {{ m.company_lines(p) }}
+      <div class="month">Payslip &middot; {{ p.month_label }}</div>
+    </td>
+    <td style="width: 32%; text-align: right;">
+      <div class="label">NET PAY</div>
+      <div class="net">Rs. {{ p.totals.net }}</div>
+      <div class="label">Paid on {{ p.period.pay_date }}</div>
+    </td>
+  </tr>
+</table>
+
+<div class="section">EMPLOYEE</div>
+<table class="emp">{{ m.employee_rows(p, 2) }}</table>
+
+<div class="section">PAY DETAILS</div>
+{{ m.pay_table(p, "pay") }}
+<div class="words"><b>Net pay Rs. {{ p.totals.net }}</b>{% if p.ytd %} &nbsp;&middot;&nbsp; YTD Rs. {{ p.ytd.net }}{% endif %}<br>{{ p.totals.net_words }}</div>
+
+{% if p.attendance or p.leave or p.employer %}
+<table style="margin-top: 12px;">
+  <tr>
+    <td style="width: 49%; vertical-align: top;">{{ m.attendance_table(p) }}</td>
+    <td style="width: 2%;"></td>
+    <td style="width: 49%; vertical-align: top;">{{ m.leave_table(p) }}{% if p.leave and p.employer %}<div style="height: 8px;"></div>{% endif %}{{ m.employer_table(p) }}</td>
+  </tr>
+</table>
+{% endif %}
+
+<div class="footer">{{ p.footer_note or "" }}</div>
+</body>
+</html>
